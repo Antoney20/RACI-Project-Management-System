@@ -106,7 +106,7 @@ allowed_tags = [
     "fix", "perf", "style", "refactor", "test"
 ]
 minor_tags = ["feat"]
-patch_tags = ["fix", "perf"]
+patch_tags = ["fix", "perf", "docs"]  
 
 [tool.semantic_release.branches.main]
 match = "(main|master)"
