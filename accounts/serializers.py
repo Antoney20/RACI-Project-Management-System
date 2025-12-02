@@ -73,10 +73,10 @@ class LoginSerializer(serializers.Serializer):
                 "Your account is inactive. Please contact support."
             )
         
-        if not user.is_email_verified:
-            raise serializers.ValidationError(
-                "Your email has not been verified. Please wait for secretariate approval."
-            )
+        # if not user.is_email_verified:
+        #     raise serializers.ValidationError(
+        #         "Your email has not been verified. Please wait for secretariate approval."
+        #     )
         
         return {"user": user}
 

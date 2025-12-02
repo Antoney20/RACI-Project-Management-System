@@ -1,4 +1,4 @@
-from datetime import timezone
+
 import logging
 from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
@@ -12,6 +12,7 @@ from django.contrib.auth.tokens import default_token_generator, PasswordResetTok
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
+from django.utils import timezone
 
 from .models import CustomUser, UserStatus
 from .serializers import (
@@ -54,7 +55,7 @@ class RegisterView(generics.CreateAPIView):
 
             return Response({
                 'success': True,
-                'message': 'Registration successful. Please wait for CEMA-Africa secretariate approval.',
+                'message': 'Registration successful. .',
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -64,100 +65,6 @@ class RegisterView(generics.CreateAPIView):
                 'message': 'Registration failed. Please try again.',
                 'errors': getattr(e, 'detail', str(e))
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# class EmailVerifyView(generics.GenericAPIView):
-#     """
-#     Email verification view for secretariate approval/rejection
-#     GET: Validate token and return user data for review
-#     PATCH/PUT: Approve or reject user registration
-#     """
-#     permission_classes = [AllowAny]
-#     queryset = CustomUser.objects.all()
-#     serializer_class = EmailVerifySerializer
-
-#     def get(self, request, user_id, token):
-#         """Validate token and return user data for review"""
-#         try:
-#             user = CustomUser.objects.get(id=user_id)
-#         except CustomUser.DoesNotExist:
-#             return Response({
-#                 'success': False,
-#                 'message': 'User not found.'
-#             }, status=status.HTTP_404_NOT_FOUND)
-
-#         if not default_token_generator.check_token(user, token):
-#             return Response({
-#                 'success': False,
-#                 'message': 'Invalid or expired token.'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-
-#         return Response({
-#             'success': True,
-#             'message': 'Token valid. User pending approval.',
-#             'user': UserSerializer(user).data
-#         }, status=status.HTTP_200_OK)
-
-#     def patch(self, request, user_id, token):
-#         """Handle user approval/rejection via PATCH"""
-#         return self._handle_action(request, user_id, token)
-
-#     def put(self, request, user_id, token):
-#         """Handle user approval/rejection via PUT"""
-#         return self._handle_action(request, user_id, token)
-
-#     def _handle_action(self, request, user_id, token):
-#         """Shared logic for approve/reject actions"""
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-
-#         action = serializer.validated_data['action']
-#         rejection_reason = serializer.validated_data.get('rejection_reason', '')
-
-#         try:
-#             user = CustomUser.objects.get(id=user_id)
-#         except CustomUser.DoesNotExist:
-#             return Response({
-#                 'success': False,
-#                 'message': 'User not found.'
-#             }, status=status.HTTP_404_NOT_FOUND)
-
-#         if not default_token_generator.check_token(user, token):
-#             return Response({
-#                 'success': False,
-#                 'message': 'Invalid or expired token.'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-
-#         if user.is_active and user.status == UserStatus.ACTIVE:
-#             return Response({
-#                 'success': False,
-#                 'message': 'User account has already been activated.'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-
-#         if action == 'approve':
-#             user.is_active = True
-#             user.status = UserStatus.ACTIVE
-#             user.is_email_verified = True
-#             user.email_verified_at = timezone.now()
-#             user.save()
-#             send_verification_success_email(user)
-#             message = 'User account approved and activated successfully.'
-#             logger.info(f"User approved: {user.email}")
-
-#         else:  # reject
-#             user.status = UserStatus.BLOCKED
-#             user.is_active = False
-#             user.save()
-#             send_rejection_email(user, rejection_reason)
-#             message = 'User account rejected.'
-#             logger.info(f"User rejected: {user.email}")
-
-#         return Response({
-#             'success': True,
-#             'message': message,
-#             'user': UserSerializer(user).data
-#         }, status=status.HTTP_200_OK)
-
 
 class LoginView(APIView):
     """
@@ -389,3 +296,97 @@ class ChangePasswordView(generics.GenericAPIView):
                 'success': False,
                 'message': 'An error occurred. Please try again.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class EmailVerifyView(generics.GenericAPIView):
+    """Email link verification view: GET for validation, PATCH/PUT for approve/reject"""
+    permission_classes = [AllowAny]
+    queryset = CustomUser.objects.all()
+    serializer_class = UserSerializer
+
+    def get(self, request, user_id, token):
+        """Validate token and return user data for review (no action taken)"""
+        try:
+            user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User not found.'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Verify token
+        if not default_token_generator.check_token(user, token):
+            return Response({
+                'success': False,
+                'message': 'Invalid or expired token.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+   
+        return Response({
+            'success': True,
+            'message': 'Token valid. User pending approval.',
+            'user': UserSerializer(user).data
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, user_id, token):
+        """Handle user activation/approval via PATCH"""
+        return self._handle_action(request, user_id, token)
+
+    def put(self, request, user_id, token):
+        """Alias for PATCH - handle user activation/approval via PUT"""
+        return self._handle_action(request, user_id, token)
+
+    def _handle_action(self, request, user_id, token):
+        """Shared logic for approve/reject actions"""
+        action = request.data.get('action')
+        
+        if action not in ['approve', 'reject']:
+            return Response({
+                'success': False,
+                'message': 'Invalid action. Must be "approve" or "reject".'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User not found.'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Verify token
+        if not default_token_generator.check_token(user, token):
+            return Response({
+                'success': False,
+                'message': 'Invalid or expired token.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if user already processed
+        if user.is_active and user.status == UserStatus.ACTIVE:
+            return Response({
+                'success': False,
+                'message': 'User account has already been activated.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if action == 'approve':
+            user.is_active = True
+            user.status = UserStatus.ACTIVE
+            user.save()
+            # send_verification_success_email(user)
+            message = 'User account approved and activated successfully.'
+            logger.info(f"User approved via email verification: {user.email}")
+            
+        else:  # reject
+            user.status = UserStatus.BLOCKED  # Or UserStatus.REJECTED if defined
+            user.is_active = False
+            user.save()
+            # send_rejection_email(user)
+            message = 'User account rejected.'
+            logger.info(f"User rejected via email verification: {user.email}")
+
+        return Response({
+            'success': True,
+            'message': message,
+            'user': UserSerializer(user).data
+        }, status=status.HTTP_200_OK)

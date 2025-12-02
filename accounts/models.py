@@ -13,9 +13,35 @@ class UserStatus(models.TextChoices):
 
 
 class RoleEnum(models.TextChoices):
-    ADMIN = "admin", "Admin"
-    SUPERVISOR = "supervisor", "Supervisor"
-    STAFF = "staff", "Staff"
+    """
+    RACI System Role Hierarchy:
+    
+    ADMIN (System-wide)
+        - Director/Principal Investigator
+        - Full system access, all users, all data
+    
+    OFFICE_ADMIN (Office Management)
+        - Office Manager / Administrative Officer
+        - See all team members in their office/unit
+        - Approve/reject leave requests for their team
+        - View team activity and submissions
+        
+    SUPERVISOR (Scientific/Project)
+        - Research Coordinator / Task Owner / Project Lead
+        - Can only approve leave for their direct team members
+        - Limited to their assigned projects/teams
+        - View project-specific data only
+    
+    STAFF (Individual Contributors)
+        - Researchers / Data Scientists / Field Officers
+        - View own data
+        - Cannot approve leave
+        - Limited access
+    """
+    ADMIN = "admin", "Admin (Director/PI)"
+    OFFICE_ADMIN = "office_admin", "Office Admin (Manager)"
+    SUPERVISOR = "supervisor", "Supervisor (Coordinator)"
+    STAFF = "staff", "Staff (Researcher)"
 
 
 class CustomUserManager(BaseUserManager):
