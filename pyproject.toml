@@ -23,6 +23,10 @@ redis = { version = "^5.0", optional = true }
 gunicorn = "^23.0"
 whitenoise = "^6.7"
 djangorestframework-simplejwt = "^5.5.1"
+django-filter = "^25.2"
+django-cors-headers = "^4.9.0"
+django-auditlog = "^3.3.0"
+pillow = "^12.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.8"

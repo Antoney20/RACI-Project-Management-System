@@ -77,8 +77,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     # Password management
     force_password_change = models.BooleanField(default=False)
 
-    # Profile metadata
-    country = models.CharField(max_length=255, blank=True, null=True)
     created_by = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_users"
     )

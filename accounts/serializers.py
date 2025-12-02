@@ -12,7 +12,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'email', 'username', 'first_name', 'last_name', 
-            'phone', 'country', 'password', 'password_confirm'
+            'phone',  'password', 'password_confirm'
         ]
     
     def validate(self, data):
@@ -89,7 +89,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
-            'phone', 'bio', 'country', 'profile_image',
+            'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
             'last_login_at', 'created_at', 'updated_at', 'role'
         ]
@@ -113,7 +113,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
-            'phone', 'bio', 'country', 'profile_image',
+            'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
             'is_staff', 'last_login_at', 'failed_login_attempts',
             'created_at', 'updated_at', 'role',
