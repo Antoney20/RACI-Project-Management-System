@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gemini"
-version = "1.0.0"
+version = "1.1.0"
 description = "Raci Backend App"
 authors = ["Antony <antony.muchiri@cema.africa>"]
 readme = "README.md"
