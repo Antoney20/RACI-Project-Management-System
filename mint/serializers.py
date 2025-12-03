@@ -50,9 +50,13 @@ class LeaveApprovalSerializer(serializers.Serializer):
     rejection_reason = serializers.CharField(required=False, allow_blank=True)
 
 
+
 class LeaveAllocationSerializer(serializers.ModelSerializer):
-    user_details = serializers.SerializerMethodField(read_only=True)
-    
+    user_details = serializers.SerializerMethodField()
+    annual_remaining = serializers.IntegerField(read_only=True)
+    sick_remaining = serializers.IntegerField(read_only=True)
+    special_remaining = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = LeaveAllocation
         fields = [
@@ -62,18 +66,18 @@ class LeaveAllocationSerializer(serializers.ModelSerializer):
             'special_leave_days', 'special_used', 'special_remaining',
             'created_at', 'updated_at'
         ]
-        read_only_fields = [
-            'id', 'annual_remaining', 'sick_remaining', 'special_remaining',
-            'created_at', 'updated_at'
-        ]
-    
+        read_only_fields = ['id', 'annual_remaining', 'sick_remaining', 'special_remaining', 'created_at', 'updated_at']
+
     def get_user_details(self, obj):
-        return {
-            'id': str(obj.user.id),
-            'username': obj.user.username,
-            'email': obj.user.email,
-            'full_name': obj.user.full_name
-        }
+        return {'id': str(obj.user.id), 'username': obj.user.username, 'email': obj.user.email, 'full_name': obj.user.full_name}
+
+    def validate(self, data):
+        annual_used = data.get('annual_used', self.instance.annual_used if self.instance else 0)
+        annual_total = data.get('annual_leave_days', self.instance.annual_leave_days if self.instance else 20)
+        if annual_used > annual_total:
+            raise serializers.ValidationError('Annual used cannot exceed allocated days')
+        return data
+
 
 
 

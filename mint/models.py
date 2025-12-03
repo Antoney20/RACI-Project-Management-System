@@ -67,50 +67,45 @@ class LeaveRequest(models.Model):
 
 
 class LeaveAllocation(models.Model):
+    """Track annual leave allocation and utilization per year"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(
-        CustomUser, on_delete=models.CASCADE, related_name="leave_allocation"
-    )
-
-    annual_leave_days = models.IntegerField(default=0)
-    sick_leave_days = models.IntegerField(default=0)
-    special_leave_days = models.IntegerField(default=0)
-
-    annual_used = models.IntegerField(default=0)
-    sick_used = models.IntegerField(default=0)
-    special_used = models.IntegerField(default=0)
-
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='leave_allocations')
+    
     year = models.IntegerField(db_index=True)
+    annual_leave_days = models.IntegerField(default=20)
+    annual_used = models.IntegerField(default=0)
+    annual_carryover = models.IntegerField(default=0)
+    
+    sick_leave_days = models.IntegerField(default=10)
+    sick_used = models.IntegerField(default=0)
+    
+    special_leave_days = models.IntegerField(default=5)
+    special_used = models.IntegerField(default=0)
+    
+    carryover_expiry_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "mint_leave_allocation"
-        verbose_name = "Leave Allocation"
-        verbose_name_plural = "Leave Allocations"
         unique_together = ["user", "year"]
-        indexes = [
-            models.Index(fields=["user", "year"]),
-        ]
+        ordering = ["-year"]
+        indexes = [models.Index(fields=["user", "year"])]
 
     def __str__(self):
         return f"{self.user.username} - {self.year}"
 
     @property
-    def annual_remaining(self) -> int:
+    def annual_remaining(self):
         return self.annual_leave_days - self.annual_used
 
     @property
-    def sick_remaining(self) -> int:
+    def sick_remaining(self):
         return self.sick_leave_days - self.sick_used
 
     @property
-    def special_remaining(self) -> int:
+    def special_remaining(self):
         return self.special_leave_days - self.special_used
-
-
-
-
 
 
 

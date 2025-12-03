@@ -2,7 +2,10 @@ from django.shortcuts import render
 
 # Create your views here.
 from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from rest_framework import viewsets
+from rest_framework import status, generics
 from .models import Project, Task, Milestone, LeaveRequest, LeaveAllocation
 from .serializers import (
     ProjectListSerializer, ProjectDetailSerializer, TaskListSerializer,
@@ -65,6 +68,72 @@ class LeaveRequestViewSet(ModelViewSet):
             'message': 'Leave request rejected.',
             'data': LeaveRequestSerializer(leave_request).data
         })
+
+
+
+
+class LeaveAllocationViewSet(viewsets.ModelViewSet):
+    """Manage leave allocations - editable by admin/supervisors"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = LeaveAllocationSerializer
+    filterset_fields = ['year', 'user']
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_admin():
+            return LeaveAllocation.objects.all()
+        elif user.is_office_admin() or user.is_supervisor():
+            return LeaveAllocation.objects.filter(user__in=user.supervised_team.all())
+        return LeaveAllocation.objects.filter(user=user)
+
+    def get_object(self):
+        obj = super().get_object()
+        user = self.request.user
+        if user.is_admin() or (user.is_office_admin() or user.is_supervisor()) and obj.user in user.supervised_team.all() or obj.user == user:
+            return obj
+        self.permission_denied(self.request)
+
+    def perform_create(self, serializer):
+        if not self.request.user.is_admin():
+            self.permission_denied(self.request)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if not (self.request.user.is_admin() or self.request.user.is_office_admin() or self.request.user.is_supervisor()):
+            self.permission_denied(self.request)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_admin():
+            self.permission_denied(self.request)
+        instance.delete()
+
+    @action(detail=True, methods=['post'])
+    def carryover(self, request, pk=None):
+        """Process carryover to next year"""
+        if not request.user.is_admin():
+            return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
+        
+        allocation = self.get_object()
+        annual_unused = max(0, allocation.annual_remaining)
+        
+        next_year = allocation.year + 1
+        next_alloc, _ = LeaveAllocation.objects.get_or_create(
+            user=allocation.user,
+            year=next_year,
+            defaults={'annual_carryover': annual_unused}
+        )
+        
+        return Response({'success': True, 'message': f'{annual_unused} days carried to {next_year}'}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def current_year(self, request):
+        """Get current year allocations"""
+        year = timezone.now().year
+        allocations = self.get_queryset().filter(year=year)
+        return Response({'success': True, 'year': year, 'data': self.get_serializer(allocations, many=True).data})
+
+
 
 
 
