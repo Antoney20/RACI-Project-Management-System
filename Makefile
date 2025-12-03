@@ -66,8 +66,6 @@ cov:
 	poetry run pytest --cov=. --cov-report=term-missing --cov-report=html
 
 
-
-
 # releases
 # Versioning & Release (semantic-release)
 version-check:

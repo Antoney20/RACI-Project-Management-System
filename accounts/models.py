@@ -71,7 +71,7 @@ class CustomUserManager(BaseUserManager):
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = models.CharField(
         max_length=150, unique=True, validators=[MinLengthValidator(5)]
     )
@@ -153,8 +153,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def is_admin(self):
         return self.has_role(RoleEnum.ADMIN) or self.is_superuser
 
+    def is_office_admin(self):
+        """Office administrator (Office Manager) - can have multiple roles"""
+        return self.has_role(RoleEnum.OFFICE_ADMIN)
+
     def is_supervisor(self):
+        """Project/Team supervisor (Coordinator) - can have multiple roles"""
         return self.has_role(RoleEnum.SUPERVISOR)
+
 
     def is_staff_member(self):
         return self.has_role(RoleEnum.STAFF)

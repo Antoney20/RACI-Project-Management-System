@@ -4,6 +4,7 @@ from django.db.models import Q
 from .models import CustomUser, UserStatus
 
 
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, min_length=8)
@@ -101,6 +102,8 @@ class UserSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         roles = list(obj.groups.values_list('name', flat=True))
         return roles if roles else ['staff']
+    
+    
 
 
 class UserDetailSerializer(serializers.ModelSerializer):

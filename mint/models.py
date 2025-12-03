@@ -2,7 +2,9 @@ import uuid
 from django.conf import settings
 from django.db import models
 # Create your models here.
-from accounts.models import CustomUser
+from django.contrib.auth import get_user_model
+
+User = get_user_model()   
 
 
 
@@ -22,17 +24,17 @@ class LeaveStatus(models.TextChoices):
 class LeaveRequest(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
-        CustomUser, on_delete=models.CASCADE, related_name="leave_requests"
+        User, on_delete=models.CASCADE, related_name="leave_requests"
     )
     
     supervisors = models.ManyToManyField(
-        CustomUser,
+        User,
         related_name="supervised_leave_requests",
         blank=True
     )
     
     approved_by = models.ForeignKey(
-        CustomUser,
+        User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -69,9 +71,9 @@ class LeaveRequest(models.Model):
 class LeaveAllocation(models.Model):
     """Track annual leave allocation and utilization per year"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='leave_allocations')
+    user = models.ForeignKey( User, on_delete=models.CASCADE, related_name='leave_allocations')
     
-    year = models.IntegerField(db_index=True)
+    year = models.IntegerField(default=2025)
     annual_leave_days = models.IntegerField(default=20)
     annual_used = models.IntegerField(default=0)
     annual_carryover = models.IntegerField(default=0)
@@ -88,9 +90,8 @@ class LeaveAllocation(models.Model):
 
     class Meta:
         db_table = "mint_leave_allocation"
-        unique_together = ["user", "year"]
         ordering = ["-year"]
-        indexes = [models.Index(fields=["user", "year"])]
+        indexes = [models.Index(fields=["user"])]
 
     def __str__(self):
         return f"{self.user.username} - {self.year}"
@@ -144,10 +145,10 @@ class Project(models.Model):
     slug = models.SlugField(unique=True, max_length=100)
 
     owner = models.ForeignKey(
-        CustomUser, on_delete=models.CASCADE, related_name="owned_projects"
+        User, on_delete=models.CASCADE, related_name="owned_projects"
     )
     collaborators = models.ManyToManyField(
-        CustomUser, related_name="projects", blank=True
+        User, related_name="projects", blank=True
     )
 
     status = models.CharField(max_length=50, default="active")
@@ -230,7 +231,7 @@ class TaskRACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="raci_assignments")
     user = models.ForeignKey(
-        CustomUser, on_delete=models.CASCADE, related_name="task_raci_assignments"
+        User, on_delete=models.CASCADE, related_name="task_raci_assignments"
     )
     raci_role = models.CharField(max_length=20, choices=RACIRole.choices)
 
@@ -254,7 +255,7 @@ class TaskRACIAssignment(models.Model):
 class TaskComment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
     content = models.TextField()
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -277,7 +278,7 @@ class TaskAttachment(models.Model):
     file = models.FileField(upload_to="tasks/attachments/")
     file_size = models.IntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, null=True)
-    uploaded_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -301,7 +302,7 @@ class ProjectDocument(models.Model):
     file_size = models.IntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, null=True)
     external_url = models.URLField(blank=True, null=True)
-    uploaded_by = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

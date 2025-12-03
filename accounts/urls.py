@@ -16,4 +16,6 @@ urlpatterns = [
     
     # User profile
     path('user/me/', views.user_me, name='user-me'),
+    path('users/', views.user_list, name='user-list'),
+
 ]

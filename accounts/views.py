@@ -390,3 +390,12 @@ class EmailVerifyView(generics.GenericAPIView):
             'message': message,
             'user': UserSerializer(user).data
         }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_list(request):
+    """Return all users — admin, office admin, supervisor, staff."""
+    users = CustomUser.objects.all()
+    serializer = UserSerializer(users, many=True)
+    return Response(serializer.data)
