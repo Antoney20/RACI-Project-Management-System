@@ -162,6 +162,17 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         return self.has_role(RoleEnum.SUPERVISOR)
 
 
+    # Fine-grained access (Group)
+    def in_group(self, group_name: str) -> bool:
+        return self.groups.filter(name=group_name).exists()
+
+    def can_view_all_leaves(self):
+        return self.is_admin() or self.in_group("leave_view_all")
+
+    def can_view_team_leaves(self):
+        return self.is_supervisor() or self.in_group("leave_view_team")
+
+
     def is_staff_member(self):
         return self.has_role(RoleEnum.STAFF)
 
