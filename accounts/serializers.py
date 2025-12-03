@@ -1,6 +1,9 @@
+from django.utils import timezone
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.db.models import Q
+
+from mint.models import LeaveAllocation
 from .models import CustomUser, UserStatus
 
 
@@ -40,6 +43,21 @@ class RegisterSerializer(serializers.ModelSerializer):
         
         user = CustomUser(**validated_data)
         user.set_password(password)
+        user.save() #save
+
+        # Auto-create leave allocation for the user
+        LeaveAllocation.objects.create(
+            user=user,
+            year=timezone.now().year,
+            annual_leave_days=0,
+            annual_used=0,
+            annual_left=0,
+            sick_leave_days=0,
+            sick_used=0,
+            other_leave_days=0,
+            other_used=0
+        )
+
         return user
 
 

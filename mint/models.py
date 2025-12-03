@@ -71,18 +71,19 @@ class LeaveRequest(models.Model):
 class LeaveAllocation(models.Model):
     """Track annual leave allocation and utilization per year"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey( User, on_delete=models.CASCADE, related_name='leave_allocations')
-    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='leave_allocations')
+
     year = models.IntegerField(default=2025)
-    annual_leave_days = models.IntegerField(default=20)
+    
+    annual_leave_days = models.IntegerField(default=0)
     annual_used = models.IntegerField(default=0)
-    annual_carryover = models.IntegerField(default=0)
+    annual_left = models.IntegerField(default=0) 
     
     sick_leave_days = models.IntegerField(default=10)
     sick_used = models.IntegerField(default=0)
     
-    special_leave_days = models.IntegerField(default=5)
-    special_used = models.IntegerField(default=0)
+    other_leave_days = models.IntegerField(default=0)  
+    other_used = models.IntegerField(default=0)        
     
     carryover_expiry_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -105,10 +106,8 @@ class LeaveAllocation(models.Model):
         return self.sick_leave_days - self.sick_used
 
     @property
-    def special_remaining(self):
-        return self.special_leave_days - self.special_used
-
-
+    def other_remaining(self):
+        return self.other_leave_days - self.other_used
 
 
 
