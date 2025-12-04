@@ -4,12 +4,15 @@ from django.shortcuts import render
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from rest_framework import serializers
 from rest_framework import viewsets
 from rest_framework import status, generics
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
 from datetime import timedelta
 from django.core.exceptions import ValidationError
+
+from core.utils.weekdays import calculate_business_days, get_business_days_in_range
 
 
 
@@ -22,6 +25,7 @@ from .serializers import (
 )
 from django.utils import timezone
 from rest_framework.permissions import AllowAny, IsAuthenticated
+
 
 
 
@@ -45,20 +49,68 @@ class LeaveRequestViewSet(ModelViewSet):
         start = serializer.validated_data.get("start_date")
         end = serializer.validated_data.get("end_date")
 
-        # Block if user has a pending leave
         if LeaveRequest.objects.filter(user=user, status=LeaveStatus.PENDING).exists():
-            raise ValidationError("You already have a leave request pending review.")
+            raise serializers.ValidationError({
+                "success": False,
+                "status": "failed",
+                "message": "You already have a leave request pending review."
+            })
 
-        overlapping = LeaveRequest.objects.filter(
+        # Check for overlapping approved leaves
+        approved_leaves = LeaveRequest.objects.filter(
             user=user,
             status=LeaveStatus.APPROVED,
             start_date__lte=end,
             end_date__gte=start
         )
-        if overlapping.exists():
-            raise ValidationError("You already have an approved leave overlapping these dates.")
+        
+        if approved_leaves.exists():
+            raise serializers.ValidationError({
+                "success": False,
+                "status": "failed",
+                "message": "You already have an approved leave overlapping these dates."
+            })
+        # Calculate business days
+        num_days = calculate_business_days(start.date(), end.date())
+        
+        current_year = timezone.now().year
 
-        serializer.save(user=user)
+        allocation = user.leave_allocations.filter(year=current_year).first()
+
+        if not allocation:
+            raise serializers.ValidationError({
+                "success": False,
+                "status": "failed",
+                "message": "No leave allocation found for this year."
+            })
+
+
+
+        leave_type = serializer.validated_data.get("leave_type")
+        
+        # Get remaining days based on leave type
+        remaining_days = 0
+        if leave_type == "annual":
+            remaining_days = allocation.annual_remaining
+        elif leave_type == "sick":
+            remaining_days = allocation.sick_remaining
+        elif leave_type == "special":
+            remaining_days = allocation.special_remaining
+        elif leave_type == "unpaid":
+            remaining_days = 000  
+        
+        if num_days > remaining_days:
+            raise serializers.ValidationError({
+                "success": False,
+                "status": "failed",
+                "message": (
+                    f"Insufficient leave balance. You have {remaining_days} days remaining "
+                    f"for {leave_type} leave, but requested {num_days} days."
+                )
+            })
+
+        # Save with calculated business days
+        serializer.save(user=user, num_days=num_days)
 
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -133,17 +185,32 @@ class LeaveRequestViewSet(ModelViewSet):
         
     @action(detail=False, methods=['get'])
     def currently_on_leave(self, request):
-        now = timezone.now()
+        """
+        Get all users currently on approved leave today.
+        Counts only business days.
+        """
+        now = timezone.now().date()
         qs = self.get_queryset().filter(
             status=LeaveStatus.APPROVED,
             start_date__lte=now,
             end_date__gte=now
         )
-        return Response(LeaveRequestSerializer(qs, many=True).data)
-
+        
+        # Filter to only include business days
+        current_leave = []
+        for leave in qs:
+            if leave.start_date.date().weekday() < 5 or leave.end_date.date().weekday() < 5:
+                # Check if today is a business day within the leave period
+                if now.weekday() < 5:  # Today is a business day
+                    current_leave.append(leave)
+        
+        return Response(LeaveRequestSerializer(current_leave, many=True).data)
 
     @action(detail=False, methods=['get'])
     def all(self, request):
+        """
+        Get all leave requests for the current user or all if supervisor/admin.
+        """
         user = request.user
         if user.is_supervisor() or user.is_admin():
             qs = LeaveRequest.objects.all()
@@ -152,9 +219,13 @@ class LeaveRequestViewSet(ModelViewSet):
 
         return Response(LeaveRequestSerializer(qs, many=True).data)
 
-
     @action(detail=False, methods=['get'])
     def by_dates(self, request):
+        """
+        Get leave requests grouped by business days only.
+        Returns a dictionary with dates as keys and leave data as values.
+        Only includes business days (Monday-Friday).
+        """
         qs = self.get_queryset()
         grouped = defaultdict(list)
 
@@ -162,8 +233,11 @@ class LeaveRequestViewSet(ModelViewSet):
             if not leave.start_date or not leave.end_date:
                 continue
 
-            cursor = leave.start_date.date()
-            end = leave.end_date.date()
+            # Get only business days in the leave period
+            business_days = get_business_days_in_range(
+                leave.start_date.date(),
+                leave.end_date.date()
+            )
 
             leave_data = LeaveRequestSerializer(leave).data
 
@@ -175,18 +249,17 @@ class LeaveRequestViewSet(ModelViewSet):
                 "email": leave.user.email,
             }
 
-            while cursor <= end:
-                grouped[str(cursor)].append({
+            # Add leave to only business days
+            for business_day in business_days:
+                grouped[str(business_day)].append({
                     "user": user_info,
                     "leave": leave_data
                 })
-                cursor += timedelta(days=1)
                 
         return Response({
             "success": True,
             "grouped_by_date": dict(grouped)
         })
-
 
 class LeaveAllocationViewSet(viewsets.ModelViewSet):
     """Manage leave allocations - editable by admin/supervisors"""
