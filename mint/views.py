@@ -28,7 +28,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 
 
 
-
 class LeaveRequestViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveRequestSerializer
@@ -70,6 +69,7 @@ class LeaveRequestViewSet(ModelViewSet):
                 "status": "failed",
                 "message": "You already have an approved leave overlapping these dates."
             })
+        
         # Calculate business days
         num_days = calculate_business_days(start.date(), end.date())
         
@@ -84,8 +84,6 @@ class LeaveRequestViewSet(ModelViewSet):
                 "message": "No leave allocation found for this year."
             })
 
-
-
         leave_type = serializer.validated_data.get("leave_type")
         
         # Get remaining days based on leave type
@@ -95,9 +93,9 @@ class LeaveRequestViewSet(ModelViewSet):
         elif leave_type == "sick":
             remaining_days = allocation.sick_remaining
         elif leave_type == "special":
-            remaining_days = allocation.special_remaining
+            remaining_days = allocation.other_remaining
         elif leave_type == "unpaid":
-            remaining_days = 000  
+            remaining_days = 999  # Unlimited unpaid leave
         
         if num_days > remaining_days:
             raise serializers.ValidationError({
@@ -111,31 +109,6 @@ class LeaveRequestViewSet(ModelViewSet):
 
         # Save with calculated business days
         serializer.save(user=user, num_days=num_days)
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        leave = self.get_object()
-
-        if leave.status in [LeaveStatus.APPROVED, LeaveStatus.REJECTED]:
-            return Response({
-                "success": False,
-                "message": "You cannot cancel an already approved or rejected leave."
-            }, status=400)
-
-        if leave.user != request.user:
-            return Response({
-                "success": False,
-                "message": "You can only cancel your own leave."
-            }, status=403)
-
-        leave.status = LeaveStatus.CANCELLED
-        leave.save()
-
-        return Response({
-            "success": True,
-            "message": "Leave successfully cancelled",
-            "data": LeaveRequestSerializer(leave).data
-        })
 
     def destroy(self, request, *args, **kwargs):
         leave = self.get_object()
@@ -153,8 +126,36 @@ class LeaveRequestViewSet(ModelViewSet):
         leave = self.get_object()
 
         if not (request.user.is_supervisor() or request.user.is_admin()):
-            return Response({"message": "Not allowed"}, status=403)
+            return Response({"message": "Not allowed : Permission denied to perform this action"}, status=403)
 
+        if leave.status == LeaveStatus.APPROVED:
+            return Response({
+                "success": False,
+                "message": "This leave request is already approved."
+            }, status=400)
+
+        # Update leave allocation to deduct days
+        current_year = timezone.now().year
+        allocation = leave.user.leave_allocations.filter(year=current_year).first()
+
+        if not allocation:
+            return Response({
+                "success": False,
+                "message": "No leave allocation found for this year."
+            }, status=400)
+
+        # Deduct days from allocation based on leave type
+        if leave.leave_type == "annual":
+            allocation.annual_used += leave.num_days
+        elif leave.leave_type == "sick":
+            allocation.sick_used += leave.num_days
+        elif leave.leave_type == "special":
+            allocation.other_used += leave.num_days
+        # unpaid leaves don't affect allocation
+
+        allocation.save()
+
+        # Update leave request status
         leave.status = LeaveStatus.APPROVED
         leave.approved_by = request.user
         leave.approved_at = timezone.now()
@@ -173,6 +174,12 @@ class LeaveRequestViewSet(ModelViewSet):
         if not (request.user.is_supervisor() or request.user.is_admin()):
             return Response({"message": "Not allowed"}, status=403)
 
+        if leave.status == LeaveStatus.REJECTED:
+            return Response({
+                "success": False,
+                "message": "This leave request is already rejected."
+            }, status=400)
+
         leave.status = LeaveStatus.REJECTED
         leave.rejection_reason = request.data.get("reason", "")
         leave.save()
@@ -182,7 +189,49 @@ class LeaveRequestViewSet(ModelViewSet):
             "message": "Leave rejected",
             "data": LeaveRequestSerializer(leave).data
         })
-        
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel a leave request and restore days if it was approved"""
+        leave = self.get_object()
+
+        if leave.user != request.user and not (request.user.is_supervisor() or request.user.is_admin()):
+            return Response({
+                "success": False,
+                "message": "You can only cancel your own leave."
+            }, status=403)
+
+        if leave.status == LeaveStatus.CANCELLED:
+            return Response({
+                "success": False,
+                "message": "This leave request is already cancelled."
+            }, status=400)
+
+        # If cancelling an approved leave, restore the days
+        if leave.status == LeaveStatus.APPROVED:
+            current_year = timezone.now().year
+            allocation = leave.user.leave_allocations.filter(year=current_year).first()
+
+            if allocation:
+                # Restore days to allocation based on leave type
+                if leave.leave_type == "annual":
+                    allocation.annual_used = max(0, allocation.annual_used - leave.num_days)
+                elif leave.leave_type == "sick":
+                    allocation.sick_used = max(0, allocation.sick_used - leave.num_days)
+                elif leave.leave_type == "special":
+                    allocation.other_used = max(0, allocation.other_used - leave.num_days)
+
+                allocation.save()
+
+        leave.status = LeaveStatus.CANCELLED
+        leave.save()
+
+        return Response({
+            "success": True,
+            "message": "Leave successfully cancelled",
+            "data": LeaveRequestSerializer(leave).data
+        })
+
     @action(detail=False, methods=['get'])
     def currently_on_leave(self, request):
         """
@@ -261,10 +310,12 @@ class LeaveRequestViewSet(ModelViewSet):
             "grouped_by_date": dict(grouped)
         })
 
-class LeaveAllocationViewSet(viewsets.ModelViewSet):
+
+class LeaveAllocationViewSet(ModelViewSet):
     """Manage leave allocations - editable by admin/supervisors"""
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ['year', 'user']
 
     def get_queryset(self):
@@ -297,15 +348,16 @@ class LeaveAllocationViewSet(viewsets.ModelViewSet):
             self.permission_denied(self.request)
         instance.delete()
 
-
     @action(detail=False, methods=['get'])
     def current_year(self, request):
         """Get current year allocations"""
         year = timezone.now().year
         allocations = self.get_queryset().filter(year=year)
-        return Response({'success': True, 'year': year, 'data': self.get_serializer(allocations, many=True).data})
-
-
+        return Response({
+            'success': True,
+            'year': year,
+            'data': self.get_serializer(allocations, many=True).data
+        })
 
 
 
