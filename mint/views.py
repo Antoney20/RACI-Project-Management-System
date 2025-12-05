@@ -11,6 +11,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
 from datetime import timedelta
 from django.core.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied
 
 from core.utils.weekdays import calculate_business_days, get_business_days_in_range
 
@@ -311,8 +312,8 @@ class LeaveRequestViewSet(ModelViewSet):
         })
 
 
+
 class LeaveAllocationViewSet(ModelViewSet):
-    """Manage leave allocations - editable by admin/supervisors"""
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
     filter_backends = [DjangoFilterBackend]
@@ -320,37 +321,50 @@ class LeaveAllocationViewSet(ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_admin():
+
+        if user.is_admin() or user.is_office_admin():
             return LeaveAllocation.objects.all()
-        elif user.is_office_admin() or user.is_supervisor():
-            return LeaveAllocation.objects.filter(user__in=user.supervised_team.all())
-        return LeaveAllocation.objects.filter(user=user)
+
+        if user.is_supervisor() or user.is_staff_member():
+            return LeaveAllocation.objects.filter(user=user)
+
+        return LeaveAllocation.objects.none()
 
     def get_object(self):
         obj = super().get_object()
         user = self.request.user
-        if user.is_admin() or (user.is_office_admin() or user.is_supervisor()) and obj.user in user.supervised_team.all() or obj.user == user:
+
+        if user.is_admin() or user.is_office_admin():
             return obj
-        self.permission_denied(self.request)
+
+        if obj.user == user:
+            return obj
+
+        raise PermissionDenied("You do not have permission to view this allocation.")
+
+    def permission_denied_message(self):
+        return Response(
+            {"success": False, "message": "You do not have permission to modify this allocation."},
+            status=403
+        )
 
     def perform_create(self, serializer):
-        if not self.request.user.is_admin():
-            self.permission_denied(self.request)
+        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+            raise PermissionDenied("You do not have permission to create leave allocations.")
         serializer.save()
 
     def perform_update(self, serializer):
-        if not (self.request.user.is_admin() or self.request.user.is_office_admin() or self.request.user.is_supervisor()):
-            self.permission_denied(self.request)
+        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+            raise PermissionDenied("You do not have permission to update this allocation.")
         serializer.save()
 
     def perform_destroy(self, instance):
         if not self.request.user.is_admin():
-            self.permission_denied(self.request)
+            raise PermissionDenied("Only admin can delete allocations.")
         instance.delete()
 
     @action(detail=False, methods=['get'])
     def current_year(self, request):
-        """Get current year allocations"""
         year = timezone.now().year
         allocations = self.get_queryset().filter(year=year)
         return Response({
@@ -359,7 +373,47 @@ class LeaveAllocationViewSet(ModelViewSet):
             'data': self.get_serializer(allocations, many=True).data
         })
 
+    def update(self, request, *args, **kwargs):
+        """Override update to give consistent API responses"""
+        try:
+            partial = kwargs.pop('partial', False)
+            instance = self.get_object()   # This will trigger permission_denied correctly
 
+            serializer = self.get_serializer(
+                instance,
+                data=request.data,
+                partial=partial
+            )
+            serializer.is_valid(raise_exception=True)
+
+            self.perform_update(serializer)
+
+            return Response({
+                "success": True,
+                "message": "Leave allocation updated successfully.",
+                "data": serializer.data
+            }, status=200)
+
+        except PermissionDenied:
+            return Response({
+                "success": False,
+                "message": "You do not have permission to modify this leave allocation.",
+                "errors": None
+            }, status=403)
+
+        except ValidationError as e:
+            return Response({
+                "success": False,
+                "message": "Validation failed.",
+                "errors": e.detail
+            }, status=400)
+
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": "Something went wrong while updating leave allocation.",
+                "errors": str(e)
+            }, status=500)
 
 
 class ProjectViewSet(ModelViewSet):
