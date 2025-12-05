@@ -1,10 +1,12 @@
 
 import logging
-from rest_framework import status, generics
+from rest_framework import status, generics,  viewsets, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
+from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenBlacklistView as SimpleJWTTokenBlacklistView
 from django.contrib.auth import authenticate, login
@@ -14,9 +16,10 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
 from django.utils import timezone
 
+
 from .models import CustomUser, UserStatus
 from .serializers import (
-    RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer,
+    CustomUserSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerifySerializer, ChangePasswordSerializer, LogoutSerializer
 )
@@ -399,3 +402,37 @@ def user_list(request):
     users = CustomUser.objects.all()
     serializer = UserSerializer(users, many=True)
     return Response(serializer.data)
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = CustomUser.objects.all()
+    serializer_class = CustomUserSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_admin():
+            return CustomUser.objects.all()
+        elif user.is_supervisor():
+            return CustomUser.objects.filter(created_by=user)
+        return CustomUser.objects.none()
+
+    @action(detail=True, methods=['post'])
+    def block(self, request, pk=None):
+        user = self.get_object()
+        if not request.user.is_admin():
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+        user.status = "blocked"
+        user.is_active = False
+        user.save()
+        return Response({"detail": f"{user.username} blocked."})
+
+    @action(detail=True, methods=['post'])
+    def unblock(self, request, pk=None):
+        user = self.get_object()
+        if not request.user.is_admin():
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+        user.status = "active"
+        user.is_active = True
+        user.save()
+        return Response({"detail": f"{user.username} unblocked."})

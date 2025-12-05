@@ -201,6 +201,14 @@ class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
+
+class CustomUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at", "last_login_at"]
+
+
 # ============================================================================
 # mint/serializers.py
 # ============================================================================
