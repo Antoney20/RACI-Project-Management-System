@@ -96,7 +96,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         default=RoleEnum.STAFF,
         db_index=True
     )
-
+    department = models.CharField(max_length=100, blank=True, null=True, db_index=True )
     # Account status
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
