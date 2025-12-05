@@ -120,7 +120,7 @@ class UserSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         roles = list(obj.groups.values_list('name', flat=True))
         return roles if roles else ['staff']
-    
+
     
 
 
