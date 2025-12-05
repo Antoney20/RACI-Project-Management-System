@@ -16,6 +16,8 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
 from django.utils import timezone
 
+from django.db.models import Q 
+
 
 from .models import CustomUser, UserStatus
 from .serializers import (
@@ -28,7 +30,6 @@ from core.services.emails_auth import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class RegisterView(generics.CreateAPIView):
     """
@@ -404,18 +405,24 @@ def user_list(request):
     return Response(serializer.data)
 
 
-class UserViewSet(viewsets.ModelViewSet):
+class ManageUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
+
         if user.is_admin():
             return CustomUser.objects.all()
-        elif user.is_supervisor():
-            return CustomUser.objects.filter(created_by=user)
-        return CustomUser.objects.none()
+
+        if user.is_supervisor():
+            return CustomUser.objects.filter(
+                Q(created_by=user) | Q(id=user.id)
+            )
+
+        return CustomUser.objects.filter(id=user.id)
+
 
     @action(detail=True, methods=['post'])
     def block(self, request, pk=None):

@@ -137,7 +137,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
             'is_staff', 'last_login_at', 'failed_login_attempts',
-            'created_at', 'updated_at', 'role',
+            'created_at', 'updated_at', 'role', 'department', 'position',
             'is_admin', 'is_supervisor'
         ]
         read_only_fields = [
@@ -206,8 +206,25 @@ class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at", "last_login_at"]
+        read_only_fields = [
+            "id", "created_at", "updated_at", "created_by",
+            "is_superuser", "is_staff",
+        ]
+    def update(self, instance, validated_data):
+        user = self.context["request"].user
 
+        # Regular users cannot modify sensitive fields
+        restricted_fields = [
+            "role", "status", "is_active",
+            "created_by", "failed_login_attempts",
+            "account_locked_until", "is_external_member"
+        ]
+
+        if not user.is_admin():
+            for field in restricted_fields:
+                validated_data.pop(field, None)
+
+        return super().update(instance, validated_data)
 
 # ============================================================================
 # mint/serializers.py

@@ -7,7 +7,7 @@ app_name = 'accounts'
 
 
 router = DefaultRouter()
-router.register(r'users', views.UserViewSet, basename='user')
+router.register(r'users', views.ManageUserViewSet, basename='manage-user')
 
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
