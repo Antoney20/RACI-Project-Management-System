@@ -122,7 +122,9 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
-            'last_login_at', 'created_at', 'updated_at', 'role',
+            'is_staff', 'last_login_at', 'failed_login_attempts',
+            'created_at', 'updated_at', 'role', 'department', 'position',
+            'is_admin', 'is_supervisor',           
             "groups",
             "user_permissions",
         ]
