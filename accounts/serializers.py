@@ -104,13 +104,27 @@ class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     role = serializers.SerializerMethodField()
     
+    
+    groups = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        read_only=True
+    )
+
+    user_permissions = serializers.SlugRelatedField(
+        many=True,
+        slug_field='codename',
+        read_only=True
+    )
     class Meta:
         model = CustomUser
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
-            'last_login_at', 'created_at', 'updated_at', 'role'
+            'last_login_at', 'created_at', 'updated_at', 'role',
+            "groups",
+            "user_permissions",
         ]
         read_only_fields = [
             'id', 'is_active', 'status', 'is_email_verified', 
@@ -130,6 +144,18 @@ class UserDetailSerializer(serializers.ModelSerializer):
     is_admin = serializers.SerializerMethodField()
     is_supervisor = serializers.SerializerMethodField()
     
+    groups = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        read_only=True
+    )
+
+    user_permissions = serializers.SlugRelatedField(
+        many=True,
+        slug_field='codename',
+        read_only=True
+    )
+    
     class Meta:
         model = CustomUser
         fields = [
@@ -138,7 +164,9 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'is_active', 'is_email_verified', 'status',
             'is_staff', 'last_login_at', 'failed_login_attempts',
             'created_at', 'updated_at', 'role', 'department', 'position',
-            'is_admin', 'is_supervisor'
+            'is_admin', 'is_supervisor',           
+            "groups",
+            "user_permissions",
         ]
         read_only_fields = [
             'id', 'is_active', 'status', 'is_staff', 'is_email_verified',
@@ -203,6 +231,18 @@ class LogoutSerializer(serializers.Serializer):
 
 
 class CustomUserSerializer(serializers.ModelSerializer):
+    
+    groups = serializers.SlugRelatedField(
+        many=True,
+        slug_field='name',
+        read_only=True
+    )
+
+    user_permissions = serializers.SlugRelatedField(
+        many=True,
+        slug_field='codename',
+        read_only=True
+    )
     class Meta:
         model = CustomUser
         fields = "__all__"

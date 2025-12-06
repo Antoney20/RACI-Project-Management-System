@@ -420,7 +420,6 @@ class ManageUserViewSet(viewsets.ModelViewSet):
             return CustomUser.objects.filter(
                 Q(created_by=user) | Q(id=user.id)
             )
-
         return CustomUser.objects.filter(id=user.id)
 
 

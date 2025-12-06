@@ -1,5 +1,6 @@
 .PHONY: help install install-dev run migrate mm makemigrations superuser shell db-shell test cov format lint clean
 
+
 # Colors
 YELLOW = \033[33m
 GREEN  = \033[32m
@@ -66,8 +67,7 @@ cov:
 	poetry run pytest --cov=. --cov-report=term-missing --cov-report=html
 
 
-# releases
-# Versioning & Release (semantic-release)
+# Versioning & Release - sematic releases
 version-check:
 	@echo "Checking next version (dry-run)..."
 	poetry run semantic-release version --print
