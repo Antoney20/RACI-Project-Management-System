@@ -66,7 +66,6 @@ test:
 cov:
 	poetry run pytest --cov=. --cov-report=term-missing --cov-report=html
 
-
 # Versioning & Release - sematic releases
 version-check:
 	@echo "Checking next version (dry-run)..."
