@@ -7,7 +7,7 @@ app_name = 'projects'
 
 router = DefaultRouter()
 
-
+# Sprint management
 router.register(r'sprints', views.SprintViewSet, basename='sprint')
 
 # Core project management
@@ -18,5 +18,5 @@ router.register(r'materials', views.ProjectMaterialViewSet, basename='material')
 router.register(r'comments', views.ProjectCommentViewSet, basename='comment')
 
 urlpatterns = [
-    path('projects/', include(router.urls)),
+    path('', include(router.urls)),  # Changed from path('projects/', ...)
 ]

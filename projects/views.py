@@ -27,20 +27,21 @@ class SprintViewSet(ModelViewSet):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = SprintSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['is_active', 'department']
+
     
     def get_queryset(self):
         user = self.request.user
         
         if user.is_admin() or user.is_office_admin():
-            return Sprint.objects.all()
+            data = Sprint.objects.all()
+
+            return data
         
         if user.is_supervisor():
-            return Sprint.objects.filter(department=user.department)
+            return Sprint.objects.all()
         
         # Staff can view all sprints
-        return Sprint.objects.filter(is_active=True)
+        return Sprint.objects.all()
     
     def perform_create(self, serializer):
         user = self.request.user
@@ -79,8 +80,8 @@ class ProjectViewSet(ModelViewSet):
     - External: Projects where Consulted/Informed
     """
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'priority', 'sprint', 'accountable_person']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['status', 'priority', 'sprint', 'accountable_person']
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -183,8 +184,8 @@ class ProjectMilestoneViewSet(ModelViewSet):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectMilestoneSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['project', 'status', 'assigned_to']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['project', 'status', 'assigned_to']
     
     def get_queryset(self):
         user = self.request.user
@@ -246,8 +247,8 @@ class ProjectMemberViewSet(ModelViewSet):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectMemberSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['project', 'user', 'raci_role']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['project', 'user', 'raci_role']
     
     def get_queryset(self):
         user = self.request.user
@@ -284,8 +285,8 @@ class ProjectMaterialViewSet(ModelViewSet):
     """Project materials (files/links) management"""
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectMaterialSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['project', 'material_type']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['project', 'material_type']
     
     def get_queryset(self):
         user = self.request.user
@@ -318,8 +319,8 @@ class ProjectCommentViewSet(ModelViewSet):
     """Project comments with threading"""
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectCommentSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['project', 'parent']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['project', 'parent']
     
     def get_queryset(self):
         user = self.request.user

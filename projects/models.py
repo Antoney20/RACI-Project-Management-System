@@ -282,26 +282,6 @@ class ProjectMaterial(models.Model):
             raise ValidationError("URL required for link type")
 
 
-# class ProjectComment(models.Model):
-#     """Comments/updates on projects (like Slack threads)"""
-#     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="comments")
-#     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="project_comments")
-#     comment = models.TextField()
-    
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
-
-#     class Meta:
-#         db_table = "projects_comment"
-#         ordering = ["-created_at"]
-#         indexes = [
-#             models.Index(fields=["project", "-created_at"]),
-#         ]
-
-#     def __str__(self):
-#         return f"{self.project.name} - {self.user.username}"
-
-
 class ProjectComment(models.Model):
     """
     Project comments with threading support
