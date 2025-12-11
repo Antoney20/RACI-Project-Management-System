@@ -63,7 +63,7 @@ class SprintViewSet(ModelViewSet):
     @action(detail=False, methods=['get'])
     def active(self, request):
         """Get all active sprints"""
-        sprints = self.get_queryset().filter(is_active=True)
+        sprints = self.get_queryset()
         serializer = self.get_serializer(sprints, many=True)
         return Response({'success': True, 'data': serializer.data})
 
@@ -184,14 +184,13 @@ class ProjectMilestoneViewSet(ModelViewSet):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = ProjectMilestoneSerializer
-    # filter_backends = [DjangoFilterBackend]
-    # filterset_fields = ['project', 'status', 'assigned_to']
-    
+
     def get_queryset(self):
         user = self.request.user
+        print("***** ", user)
         
         if user.is_admin():
-            return ProjectMilestone.objects.select_related('project', 'assigned_to')
+            return ProjectMilestone.objects.all()
         
         # Filter by accessible projects
         accessible_projects = Project.objects.filter(
@@ -205,6 +204,7 @@ class ProjectMilestoneViewSet(ModelViewSet):
     
     def perform_create(self, serializer):
         project = serializer.validated_data['project']
+        print("project", project)
         user = self.request.user
         
         if not (user.is_admin() or user.is_office_admin() or project.accountable_person == user):

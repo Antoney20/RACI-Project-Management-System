@@ -36,8 +36,9 @@ class SprintSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+
+
 class ProjectMilestoneSerializer(serializers.ModelSerializer):
-    """Milestone/subtask serializer"""
     assigned_to = UserMinimalSerializer(read_only=True)
     assigned_to_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -45,7 +46,8 @@ class ProjectMilestoneSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
-    
+
+
     class Meta:
         model = ProjectMilestone
         fields = '__all__'
@@ -138,7 +140,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
         model = Project
         fields = [
             'id', 'name', 'status', 'priority', 'progress_percentage',
-            'start_date', 'end_date', 'duration_days', 'sprint',
+            'start_date', 'end_date', 'duration_days', 'sprint','description', 'expected_output',
             'accountable_person', 'milestone_count', 'member_count',
             'is_overdue', 'days_remaining', 'created_at'
         ]

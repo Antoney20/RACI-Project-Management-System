@@ -18,5 +18,5 @@ router.register(r'materials', views.ProjectMaterialViewSet, basename='material')
 router.register(r'comments', views.ProjectCommentViewSet, basename='comment')
 
 urlpatterns = [
-    path('', include(router.urls)),  # Changed from path('projects/', ...)
+    path('', include(router.urls)),  
 ]
