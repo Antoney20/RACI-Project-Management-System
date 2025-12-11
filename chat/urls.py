@@ -6,7 +6,6 @@ app_name = 'chat'
 
 router = DefaultRouter()
 
-# Chat endpoints
 router.register(r'groups', views.ChatGroupViewSet, basename='group')
 router.register(r'conversations', views.ConversationViewSet, basename='conversation')
 router.register(r'messages', views.MessageViewSet, basename='message')

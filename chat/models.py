@@ -14,8 +14,7 @@ class ChatGroup(models.Model):
     GROUP_TYPES = (
         ('private', 'Private Group'),
         ('project', 'Project Group'),
-        ('department', 'Department Group'),
-        ('broadcast', 'Broadcast Channel'),
+         ('public', 'Public Group'),
     )
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -27,8 +26,7 @@ class ChatGroup(models.Model):
     image = models.ImageField(
         upload_to='chat/group_images/%Y/%m/%d/',
         blank=True,
-        null=True,
-        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'gif'])]
+        null=True
     )
     
     # Admin and members
@@ -105,16 +103,6 @@ class GroupMembership(models.Model):
     def __str__(self):
         return f"{self.user.username} in {self.group.name}"
     
-    def is_muted(self):
-        if not self.muted:
-            return False
-        if self.muted_until and timezone.now() > self.muted_until:
-            self.muted = False
-            self.muted_until = None
-            self.save()
-            return False
-        return True
-
 
 class Conversation(models.Model):
     """
@@ -166,8 +154,7 @@ class Message(models.Model):
         ('image', 'Image'),
         ('document', 'Document'),
         ('audio', 'Audio'),
-        ('video', 'Video'),
-        ('system', 'System'),
+        ('video', 'Video')
     )
     
     READ_STATUS = (
