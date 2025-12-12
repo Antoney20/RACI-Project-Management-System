@@ -1,7 +1,10 @@
 from rest_framework import serializers
 
-from mint.models import LeaveAllocation, LeaveRequest, Milestone, Project, ProjectDocument, Task, TaskAttachment, TaskComment, TaskRACIAssignment
+from mint.models import LeaveAllocation, LeaveRequest,  Milestones, Project, ProjectDocument, Task, TaskAttachment, TaskComment, RACIAssignment
 
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 
 
@@ -197,81 +200,76 @@ class LeaveAllocationSerializer(serializers.ModelSerializer):
     #     return data
 
 
-
 class ProjectListSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     collaborator_count = serializers.SerializerMethodField()
-    task_count = serializers.SerializerMethodField()
+    milestone_count = serializers.SerializerMethodField()
+    document_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Project
         fields = [
             'id', 'name', 'slug', 'owner', 'owner_name', 
             'status', 'progress', 'start_date', 'end_date',
-            'collaborator_count', 'task_count', 'created_at'
+            'collaborator_count', 'milestone_count', 'document_count', 
+            'created_at'
         ]
         read_only_fields = ['id', 'created_at']
     
     def get_collaborator_count(self, obj):
-        return obj.collaborators.count()
+        # Collaborators are users assigned via RACI on the project
+        return obj.role_assignments.values('user').distinct().count()
     
-    def get_task_count(self, obj):
-        return obj.tasks.count()
-
-
-class ProjectDetailSerializer(serializers.ModelSerializer):
-    owner_name = serializers.CharField(source='owner.full_name', read_only=True)
-    collaborators_list = serializers.SerializerMethodField()
-    milestones_count = serializers.SerializerMethodField()
-    tasks_count = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Project
-        fields = [
-            'id', 'name', 'slug', 'description', 'owner', 'owner_name',
-            'collaborators', 'collaborators_list', 'status', 'progress',
-            'start_date', 'end_date', 'milestones_count', 'tasks_count',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def get_collaborators_list(self, obj):
-        return [
-            {
-                'id': str(c.id),
-                'username': c.username,
-                'email': c.email,
-                'full_name': c.full_name
-            }
-            for c in obj.collaborators.all()
-        ]
-    
-    def get_milestones_count(self, obj):
+    def get_milestone_count(self, obj):
         return obj.milestones.count()
     
-    def get_tasks_count(self, obj):
-        return obj.tasks.count()
+    def get_document_count(self, obj):
+        return obj.documents.count()
 
 
 class MilestoneSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
+    project_slug = serializers.CharField(source='project.slug', read_only=True)
     
     class Meta:
-        model = Milestone
+        model = Milestones  
         fields = [
-            'id', 'project', 'project_name', 'title', 'description',
+            'id', 'project', 'project_name', 'project_slug', 'title', 'description',
             'due_date', 'is_completed', 'completed_at', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class TaskRACIAssignmentSerializer(serializers.ModelSerializer):
-    user_details = serializers.SerializerMethodField(read_only=True)
+class ProjectDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
+    file_url = serializers.SerializerMethodField()
     
     class Meta:
-        model = TaskRACIAssignment
-        fields = ['id', 'task', 'user', 'user_details', 'raci_role', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        model = ProjectDocument
+        fields = [
+            'id', 'project', 'title', 'description', 'document_type',
+            'file', 'file_url', 'file_size', 'mime_type', 'external_url',
+            'uploaded_by', 'uploaded_by_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'file_url']
+    
+    def get_file_url(self, obj):
+        if obj.file:
+            return obj.file.url
+        return None
+
+
+class RACIAssignmentSerializer(serializers.ModelSerializer):
+    user_details = serializers.SerializerMethodField(read_only=True)
+    project_details = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = RACIAssignment
+        fields = [
+            'id', 'task', 'project_details', 'user', 'user_details', 
+            'raci_role', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_user_details(self, obj):
         return {
@@ -280,6 +278,38 @@ class TaskRACIAssignmentSerializer(serializers.ModelSerializer):
             'email': obj.user.email,
             'full_name': obj.user.full_name
         }
+    
+    def get_project_details(self, obj):
+        return {
+            'id': str(obj.task.id),
+            'name': obj.task.name,
+            'slug': obj.task.slug,
+        }
+
+class ProjectDetailSerializer(serializers.ModelSerializer):
+    owner_name = serializers.CharField(source='owner.full_name', read_only=True)
+    milestones = MilestoneSerializer(many=True, read_only=True)
+    documents = ProjectDocumentSerializer(many=True, read_only=True)
+    raci_assignments = RACIAssignmentSerializer(many=True, read_only=True, source='raci_assignments')
+    
+    class Meta:
+        model = Project
+        fields = [
+            'id', 'name', 'slug', 'description', 'owner', 'owner_name',
+            'collaborators_list', 'status', 'progress',
+            'start_date', 'end_date',  'created_at', 'updated_at', 'milestones', 'documents', 'raci_assignments'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+
+
+
+
+
+
+
+
 
 
 class TaskCommentSerializer(serializers.ModelSerializer):
@@ -301,7 +331,6 @@ class TaskCommentSerializer(serializers.ModelSerializer):
         validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
 
-
 class TaskAttachmentSerializer(serializers.ModelSerializer):
     uploader_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
     
@@ -320,7 +349,7 @@ class TaskAttachmentSerializer(serializers.ModelSerializer):
 
 class TaskDetailSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
-    raci_assignments = TaskRACIAssignmentSerializer(many=True, read_only=True)
+    # raci_assignments = TaskRACIAssignmentSerializer(many=True, read_only=True)
     comments = TaskCommentSerializer(many=True, read_only=True)
     attachments = TaskAttachmentSerializer(many=True, read_only=True)
     
@@ -367,4 +396,6 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['uploaded_by'] = self.context['request'].user
         return super().create(validated_data)
+
+
 

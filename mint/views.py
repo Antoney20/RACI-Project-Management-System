@@ -13,14 +13,16 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 
+from django.db.models import Q
+
 from core.utils.weekdays import calculate_business_days, get_business_days_in_range
 
 
 
 
-from .models import LeaveStatus, Project, Task, Milestone, LeaveRequest, LeaveAllocation
+from .models import LeaveStatus, Milestones, Project, ProjectDocument, Task,  LeaveRequest, LeaveAllocation, RACIAssignment
 from .serializers import (
-    ProjectListSerializer, ProjectDetailSerializer, TaskListSerializer,
+    ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
     LeaveAllocationSerializer
 )
@@ -311,8 +313,6 @@ class LeaveRequestViewSet(ModelViewSet):
             "grouped_by_date": dict(grouped)
         })
 
-
-
 class LeaveAllocationViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
@@ -416,18 +416,32 @@ class LeaveAllocationViewSet(ModelViewSet):
             }, status=500)
 
 
-class ProjectViewSet(ModelViewSet):
-    """Project CRUD operations"""
+
+
+
+class ProjectViewSet(viewsets.ModelViewSet):
+    """
+    Project CRUD operations.
+    - Owner and users with RACI assignment can view/edit.
+    - Admin/staff can see all.
+    """
     permission_classes = [IsAuthenticated]
-    filter_backends = ['django_filters.rest_framework.DjangoFilterBackend']
-    filterset_fields = ['status', 'owner']
-    search_fields = ['name', 'description']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status']
+    search_fields = ['name', 'description', 'slug']
+    ordering_fields = ['created_at', 'start_date', 'progress']
+    ordering = ['-created_at']
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_admin():
-            return Project.objects.all()
-        return Project.objects.filter(owner=user) | Project.objects.filter(collaborators=user)
+
+        if user.is_staff:  # or user.is_admin() if you have custom method
+            return Project.objects.all().select_related('owner').prefetch_related('raci_assignments__user')
+
+        # Owner OR has RACI assignment on the project
+        return Project.objects.filter(
+            Q(owner=user) | Q(raci_assignments__user=user)
+        ).distinct().select_related('owner').prefetch_related('raci_assignments__user')
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -437,22 +451,154 @@ class ProjectViewSet(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-    @action(detail=True, methods=['post'])
-    def add_collaborator(self, request, pk=None):
+    # Optional: Custom action to list or add RACI assignments
+    @action(detail=True, methods=['get'])
+    def raci(self, request, pk=None):
         project = self.get_object()
+        assignments = project.raci_assignments.select_related('user').all()
+        serializer = RACIAssignmentSerializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def assign_role(self, request, pk=None):
+        """
+        Assign a user a RACI role on this project.
+        Expected data: { "user_id": "uuid", "raci_role": "Responsible" }
+        """
+        project = self.get_object()
+
+        # Only owner or Accountable/Consulted? Or allow Responsible to invite? Adjust as needed.
+        if not (project.owner == request.user or request.user.is_staff):
+            return Response(
+                {"detail": "Only project owner or staff can assign roles."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         user_id = request.data.get('user_id')
+        raci_role = request.data.get('raci_role')
+
+        if not user_id or not raci_role:
+            return Response(
+                {"detail": "user_id and raci_role are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
             user = CustomUser.objects.get(id=user_id)
-            project.collaborators.add(user)
-            return Response({
-                'success': True,
-                'message': f'{user.full_name} added as collaborator.'
-            })
         except CustomUser.DoesNotExist:
-            return Response({
-                'success': False,
-                'message': 'User not found.'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        assignment, created = RACIAssignment.objects.update_or_create(
+            project=project,
+            user=user,
+            defaults={'raci_role': raci_role}
+        )
+
+        action_text = "created" if created else "updated"
+        return Response({
+            "success": True,
+            "message": f"{user.get_full_name() or user.username} is now {raci_role} on this project.",
+            "assignment_id": str(assignment.id)
+        })
+
+    @action(detail=True, methods=['delete'])
+    def remove_role(self, request, pk=None):
+        """
+        Remove a user's RACI assignment from project.
+        Expected query param or data: user_id
+        """
+        project = self.get_object()
+
+        if not (project.owner == request.user or request.user.is_staff):
+            return Response(
+                {"detail": "Only project owner or staff can remove roles."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        user_id = request.query_params.get('user_id') or request.data.get('user_id')
+        if not user_id:
+            return Response(
+                {"detail": "user_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            assignment = project.raci_assignments.get(user_id=user_id)
+            assignment.delete()
+            return Response({"success": True, "message": "Role assignment removed."})
+        except RACIAssignment.DoesNotExist:
+            return Response(
+                {"detail": "Assignment not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class MilestoneViewSet(viewsets.ModelViewSet):
+    """
+    Milestones for projects the user has access to (via ownership or RACI)
+    """
+    serializer_class = MilestoneSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['is_completed']
+    ordering_fields = ['due_date', 'created_at']
+    ordering = ['due_date']
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff:
+            return Milestones.objects.all().select_related('project')
+
+        return Milestones.objects.filter(
+            Q(project__owner=user) | Q(project__raci_assignments__user=user)
+        ).distinct().select_related('project')
+
+
+class ProjectDocumentViewSet(viewsets.ModelViewSet):
+    """
+    Documents/Notes for projects the user has access to
+    """
+    serializer_class = ProjectDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    # filter_backends = [OrderingFilter]
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff:
+            return ProjectDocument.objects.all().select_related('project', 'uploaded_by')
+
+        return ProjectDocument.objects.filter(
+            Q(project__owner=user) | Q(project__raci_assignments__user=user)
+        ).distinct().select_related('project', 'uploaded_by')
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
+
+
+class RACIAssignmentViewSet(viewsets.ModelViewSet):
+    """
+    Optional: Direct CRUD on RACI assignments (if you want fine-grained control)
+    """
+    serializer_class = RACIAssignmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff:
+            return RACIAssignment.objects.all().select_related('project', 'user')
+
+        # Users can see assignments on projects they are part of
+        return RACIAssignment.objects.filter(
+            Q(project__owner=user) | Q(project__raci_assignments__user=user) | Q(user=user)
+        ).distinct().select_related('project', 'user')
+
 
 
 class TaskViewSet(ModelViewSet):
@@ -469,14 +615,4 @@ class TaskViewSet(ModelViewSet):
         if self.action == 'retrieve':
             return TaskDetailSerializer
         return TaskListSerializer
-
-
-class MilestoneViewSet(ModelViewSet):
-    """Milestone CRUD operations"""
-    permission_classes = [IsAuthenticated]
-    serializer_class = MilestoneSerializer
-
-    def get_queryset(self):
-        return Milestone.objects.filter(project__collaborators=self.request.user) | \
-               Milestone.objects.filter(project__owner=self.request.user)
 

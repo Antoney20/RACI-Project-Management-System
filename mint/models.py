@@ -117,8 +117,6 @@ class LeaveRequest(models.Model):
         if self.leave_type == LeaveType.OTHER and self.leave_type_other:
             leave_type_display = self.leave_type_other
         return f"{self.user.username} - {leave_type_display} ({self.status})"
-
-
 class LeaveAllocation(models.Model):
     """Track annual leave allocation and utilization per year"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -206,7 +204,7 @@ class LeaveAllocation(models.Model):
 class TaskStatus(models.TextChoices):
     NOT_STARTED = "not_started", "Not Started"
     IN_PROGRESS = "in_progress", "In Progress"
-    ON_HOLD = "on_hold", "On Hold"
+    PENDING = "pending", "Pending"
     COMPLETED = "completed", "Completed"
     CANCELLED = "cancelled", "Cancelled"
 
@@ -237,11 +235,7 @@ class Project(models.Model):
     owner = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="owned_projects"
     )
-    collaborators = models.ManyToManyField(
-        User, related_name="projects", blank=True
-    )
-
-    status = models.CharField(max_length=50, default="active")
+    status = models.CharField(max_length=50, default="pending")
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     progress = models.FloatField(default=0.0)
@@ -263,12 +257,47 @@ class Project(models.Model):
         return self.name
 
 
-class Milestone(models.Model):
+# Project collaborators via RACI
+class RACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="milestones")
+    
+    # Renamed from 'task' to 'project' for clarity
+    project = models.ForeignKey(
+        Project, 
+        on_delete=models.CASCADE, 
+        related_name="raci_assignments"  # Clean, unique related_name
+    )
+    
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="project_raci_assignments"  # Changed to avoid clash
+    )
+    raci_role = models.CharField(max_length=20, choices=RACIRole.choices)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "p_raci_assignment"
+        verbose_name = "RACI Assignment"
+        verbose_name_plural = "RACI Assignments"
+        unique_together = ['project', 'user', 'raci_role']  # Optional: prevent duplicates
+        indexes = [
+            models.Index(fields=["project", "raci_role"]),
+            models.Index(fields=["user", "raci_role"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.get_full_name() or self.user.username} - {self.raci_role} on {self.project.name}"
+
+
+class Milestones(models.Model):  # Consider renaming class to Milestone (singular)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="proj_milestones")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
-    due_date = models.DateTimeField()
+    due_date = models.DateTimeField(blank=True, null=True)
     is_completed = models.BooleanField(default=False)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -276,14 +305,50 @@ class Milestone(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "mint_milestone"
-        verbose_name = "Milestone"
-        verbose_name_plural = "Milestones"
+        db_table = "proj_mint_milestone"
+        verbose_name = "Proj_Milestone"
+        verbose_name_plural = "Proj_Milestones"
         ordering = ["due_date"]
 
     def __str__(self):
         return f"{self.project.name} - {self.title}"
 
+
+class ProjectDocument(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="documents")
+    title = models.CharField(max_length=200, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    document_type = models.CharField(max_length=50, blank=True, null=True)
+    file = models.FileField(upload_to="projects/documents/", blank=True, null=True)
+    file_size = models.IntegerField(null=True, blank=True)
+    mime_type = models.CharField(max_length=100, blank=True, null=True)
+    external_url = models.URLField(blank=True, null=True)
+    uploaded_by = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="uploaded_project_documents"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mint_project_document"
+        verbose_name = "Project Document"
+        verbose_name_plural = "Project Documents"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title or 'Untitled'} - {self.project.name}"
+
+
+
+
+
+
+
+
+###later
 
 class Task(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -380,28 +445,3 @@ class TaskAttachment(models.Model):
 
     def __str__(self):
         return f"{self.file_name} - {self.task.title}"
-
-
-class ProjectDocument(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="documents")
-    title = models.CharField(max_length=200)
-    description = models.TextField(blank=True, null=True)
-    document_type = models.CharField(max_length=50, blank=True, null=True)
-    file = models.FileField(upload_to="projects/documents/")
-    file_size = models.IntegerField(null=True, blank=True)
-    mime_type = models.CharField(max_length=100, blank=True, null=True)
-    external_url = models.URLField(blank=True, null=True)
-    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "mint_project_document"
-        verbose_name = "Project Document"
-        verbose_name_plural = "Project Documents"
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"{self.title} - {self.project.name}"
