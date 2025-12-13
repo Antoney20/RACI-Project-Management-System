@@ -8,9 +8,6 @@ User = get_user_model()
 
 
 
-
-
-
 class LeaveRequestSerializer(serializers.ModelSerializer):
     user_details = serializers.SerializerMethodField(read_only=True)
     approved_by_details = serializers.SerializerMethodField(read_only=True)
@@ -200,6 +197,29 @@ class LeaveAllocationSerializer(serializers.ModelSerializer):
     #     return data
 
 
+class ProjectCreateSerializer(serializers.ModelSerializer):
+    accountable_person_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='owner',
+        write_only=True
+    )
+
+    class Meta:
+        model = Project
+        fields = [
+            'id',
+            'name',
+            'description',
+            'accountable_person_id',
+            'status',
+            'start_date',
+            'end_date',
+            'progress',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
 class ProjectListSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     collaborator_count = serializers.SerializerMethodField()
@@ -209,7 +229,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'slug', 'owner', 'owner_name', 
+            'id', 'name',  'owner', 'owner_name', 
             'status', 'progress', 'start_date', 'end_date',
             'collaborator_count', 'milestone_count', 'document_count', 
             'created_at'
@@ -217,24 +237,22 @@ class ProjectListSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
     
     def get_collaborator_count(self, obj):
-        # Collaborators are users assigned via RACI on the project
-        return obj.role_assignments.values('user').distinct().count()
-    
+        return obj.raci_assignments.values('user').distinct().count()
+
     def get_milestone_count(self, obj):
-        return obj.milestones.count()
-    
+        return obj.proj_milestones.count() 
+
     def get_document_count(self, obj):
         return obj.documents.count()
 
 
 class MilestoneSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
-    project_slug = serializers.CharField(source='project.slug', read_only=True)
     
     class Meta:
         model = Milestones  
         fields = [
-            'id', 'project', 'project_name', 'project_slug', 'title', 'description',
+            'id', 'project', 'project_name', 'title', 'description',
             'due_date', 'is_completed', 'completed_at', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -266,7 +284,7 @@ class RACIAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = RACIAssignment
         fields = [
-            'id', 'task', 'project_details', 'user', 'user_details', 
+            'id', 'project', 'project_details', 'user', 'user_details', 
             'raci_role', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -281,9 +299,8 @@ class RACIAssignmentSerializer(serializers.ModelSerializer):
     
     def get_project_details(self, obj):
         return {
-            'id': str(obj.task.id),
-            'name': obj.task.name,
-            'slug': obj.task.slug,
+            'id': str(obj.project.id),
+            'name': obj.project.name,
         }
 
 class ProjectDetailSerializer(serializers.ModelSerializer):
@@ -295,7 +312,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'slug', 'description', 'owner', 'owner_name',
+            'id', 'name',  'description', 'owner', 'owner_name',
             'collaborators_list', 'status', 'progress',
             'start_date', 'end_date',  'created_at', 'updated_at', 'milestones', 'documents', 'raci_assignments'
         ]

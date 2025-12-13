@@ -22,7 +22,7 @@ from core.utils.weekdays import calculate_business_days, get_business_days_in_ra
 
 from .models import LeaveStatus, Milestones, Project, ProjectDocument, Task,  LeaveRequest, LeaveAllocation, RACIAssignment
 from .serializers import (
-    ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, TaskListSerializer,
+    ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
     LeaveAllocationSerializer
 )
@@ -428,7 +428,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status']
-    search_fields = ['name', 'description', 'slug']
+    search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'start_date', 'progress']
     ordering = ['-created_at']
 
@@ -444,12 +444,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
         ).distinct().select_related('owner').prefetch_related('raci_assignments__user')
 
     def get_serializer_class(self):
+        if self.action == 'create':
+            return ProjectCreateSerializer
         if self.action == 'retrieve':
             return ProjectDetailSerializer
         return ProjectListSerializer
 
+
+    # def perform_create(self, serializer):
+    #     serializer.save(owner=self.request.user)
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save()
+
 
     # Optional: Custom action to list or add RACI assignments
     @action(detail=True, methods=['get'])

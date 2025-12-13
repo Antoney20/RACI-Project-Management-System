@@ -230,7 +230,6 @@ class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
-    slug = models.SlugField(unique=True, max_length=100)
 
     owner = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="owned_projects"
@@ -249,8 +248,7 @@ class Project(models.Model):
         verbose_name_plural = "Projects"
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["owner", "status"]),
-            models.Index(fields=["slug"]),
+            models.Index(fields=["owner", "status"])
         ]
 
     def __str__(self):
@@ -290,7 +288,6 @@ class RACIAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.raci_role} on {self.project.name}"
-
 
 class Milestones(models.Model):  # Consider renaming class to Milestone (singular)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
