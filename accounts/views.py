@@ -6,6 +6,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
+from rest_framework import serializers
+
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenBlacklistView as SimpleJWTTokenBlacklistView
@@ -16,12 +18,14 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
 from django.utils import timezone
 
-from django.db.models import Q 
+from django.db.models import Q
+
+from mint.models import LeaveAllocation 
 
 
 from .models import CustomUser, UserStatus
 from .serializers import (
-    CustomUserSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer,
+    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerifySerializer, ChangePasswordSerializer, LogoutSerializer
 )
@@ -442,3 +446,155 @@ class ManageUserViewSet(viewsets.ModelViewSet):
         user.is_active = True
         user.save()
         return Response({"detail": f"{user.username} unblocked."})
+
+
+
+
+
+class InviteUserView(generics.CreateAPIView):
+    """
+    Create and send invite to a new user
+    POST /api/accounts/invite/
+    """
+    serializer_class = InviteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        # Check if user has permission to invite
+        if not (request.user.is_superuser or request.user.role in ['admin', 'office_admin']):
+            return Response({
+                "success": False,
+                "message": "You do not have permission to invite users"
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(data=request.data)
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            
+            # Save invite user via serializer
+            invite_user = serializer.save()
+            
+            # Generate invite link - Fixed variable name
+            invite_link = f"{settings.FRONTEND_URL}/auth/accept-invite/{invite_user.invite_token}/"
+            
+            # Optionally send email here
+            #  email
+            return Response({
+                "success": True,
+                "message": "Invitation created successfully",
+                "data": {
+                    "invite_link": invite_link,
+                    "email": invite_user.email,
+                    "role": invite_user.role,
+                    "expires_at": invite_user.invite_expires_at.isoformat() if invite_user.invite_expires_at else None
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except serializers.ValidationError as e:
+            return Response({
+                "success": False,
+                "message": "Validation failed",
+                "errors": e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": f"Failed to create invite: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VerifyInviteView(generics.GenericAPIView):
+    """
+    Verify if an invite token is valid and return invite details
+    GET /api/accounts/invite/verify/{token}/
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, token, *args, **kwargs):
+        try:
+            user = CustomUser.objects.get(
+                invite_token=token,
+                is_invited=True,
+                is_active=False
+            )
+            
+            # Check if invite has expired
+            if user.invite_expires_at and user.invite_expires_at < timezone.now():
+                return Response({
+                    "is_valid": False,
+                    "message": "This invitation link has expired. Please contact your administrator for a new invitation."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Return invite details
+            invited_by_name = "Unknown"
+            if user.invited_by:
+                invited_by_name = f"{user.invited_by.first_name} {user.invited_by.last_name}".strip() or user.invited_by.email
+            
+            return Response({
+                "is_valid": True,
+                "email": user.email,
+                "role": user.role,
+                "department": user.department or "",
+                "position": user.position or "",
+                "invited_by": invited_by_name,
+                "invited_at": user.invited_at.isoformat() if hasattr(user, 'invited_at') and user.invited_at else None
+            }, status=status.HTTP_200_OK)
+            
+        except CustomUser.DoesNotExist:
+            return Response({
+                "is_valid": False,
+                "message": "Invalid invitation link. This link may have already been used or does not exist."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+
+class AcceptInviteView(generics.GenericAPIView):
+    """
+    Accept an invite and activate user account
+    POST /api/accounts/invite/accept/
+    """
+    serializer_class = AcceptInviteSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            user = serializer.save()
+            
+            return Response({
+                "success": True,
+                "message": "Account activated successfully! You can now log in.",
+                "user_id": str(user.id),
+                "email": user.email,
+                "username": user.username
+            }, status=status.HTTP_200_OK)
+            
+        except serializers.ValidationError as e:
+            # Handle validation errors
+            errors = {}
+            if isinstance(e.detail, dict):
+                errors = e.detail
+            else:
+                errors = {"error": str(e.detail)}
+            
+            return Response({
+                "success": False,
+                "message": "Validation failed",
+                "errors": errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except CustomUser.DoesNotExist:
+            return Response({
+                "success": False,
+                "message": "Invalid or expired invitation token"
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": f"An error occurred: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

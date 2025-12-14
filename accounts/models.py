@@ -7,6 +7,7 @@ from django.utils import timezone
 
 
 class UserStatus(models.TextChoices):
+    INVITED = "invited", "Invited"
     ACTIVE = "active", "Active"
     INACTIVE = "inactive", "Inactive"
     BLOCKED = "blocked", "Blocked"
@@ -68,15 +69,30 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault("is_active", True)
         extra_fields.setdefault("status", UserStatus.ACTIVE)
         return self.create_user(email, username, password, **extra_fields)
+    
+    def create_invited_user(self, email, role, invited_by=None, **extra):
+        email = self.normalize_email(email)
 
+        user = self.model(
+            email=email,
+            role=role,
+            status=UserStatus.INVITED,
+            is_active=False,
+            invited_by=invited_by,
+            invite_expires_at=timezone.now() + timezone.timedelta(days=7),
+            **extra
+        )
+        user.set_unusable_password()
+        user.save(using=self._db)
+
+        return user
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
-    # Identity
     username = models.CharField(
         max_length=150,
-        unique=True,
-        validators=[MinLengthValidator(5)]
+        unique=True,      
+        null=True, blank=True 
     )
     email = models.EmailField(unique=True, db_index=True)
 
@@ -89,7 +105,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         upload_to="users/profiles/", blank=True, null=True
     )
 
-    # RACI Role
+    # user role
     role = models.CharField(
         max_length=20,
         choices=RoleEnum.choices,
@@ -127,6 +143,26 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         related_name="created_users"
     )
 
+ 
+    # -------------------- invite models
+    is_invited = models.BooleanField(default=False)
+    invite_token = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True
+    )
+    description = models.TextField(blank=True, null=True)
+    invite_expires_at = models.DateTimeField(null=True, blank=True)
+
+    invited_by = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="invited_users"
+    )
+
+    invited_at = models.DateTimeField(null=True, blank=True)
     # Optional advanced permissions
     groups = models.ManyToManyField(
         Group,
@@ -144,7 +180,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username"]
+    REQUIRED_FIELDS = []
 
     objects = CustomUserManager()
 

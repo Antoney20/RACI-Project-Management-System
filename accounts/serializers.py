@@ -1,10 +1,12 @@
+import uuid
 from django.utils import timezone
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.db.models import Q
 
 from mint.models import LeaveAllocation
-from .models import CustomUser, UserStatus
+from .models import CustomUser, RoleEnum, UserStatus
+from django.contrib.auth.password_validation import validate_password
 
 
 
@@ -25,9 +27,12 @@ class RegisterSerializer(serializers.ModelSerializer):
                 'password_confirm': 'Passwords do not match.'
             })
         
-        if CustomUser.objects.filter(email=data.get('email')).exists():
+        if CustomUser.objects.filter(
+            email=data.get('email'),
+            status=UserStatus.INVITED
+        ).exists():
             raise serializers.ValidationError({
-                'email': 'Email already registered.'
+                'email': 'This email has a pending invite. Please check your email.'
             })
         
         if CustomUser.objects.filter(username=data.get('username')).exists():
@@ -56,6 +61,131 @@ class RegisterSerializer(serializers.ModelSerializer):
             sick_used=0,
             other_leave_days=0,
             other_used=0
+        )
+
+        return user
+
+class InviteSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=RoleEnum.choices)
+    department = serializers.CharField(required=False, allow_blank=True)
+    position = serializers.CharField(required=False, allow_blank=True)
+    message = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = CustomUser
+        fields = ["email", "role", "department", "position", "message"]
+
+    def validate_email(self, value):
+        if CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email already exists")
+        return value
+
+    def create(self, validated_data):
+        user = CustomUser.objects.create(
+            email=validated_data["email"],
+            role=validated_data["role"],
+            department=validated_data.get("department"),
+            position=validated_data.get("position"),
+            is_external_member=validated_data.get("is_external_member", False),
+            description=validated_data.get("description", ""),
+            status=UserStatus.INVITED,
+            is_active=False,
+            is_invited = True,
+            invited_by=self.context["request"].user,
+            invite_token=uuid.uuid4(),
+            invite_expires_at=timezone.now() + timezone.timedelta(days=30),
+        )
+
+        return user
+
+class AcceptInviteSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, min_length=8)
+    invite_token = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            "invite_token", "username", "password", "password_confirm",
+            "first_name", "last_name", "phone"
+        ]
+
+    def validate_username(self, value):
+        """Validate username is unique and meets requirements"""
+        if len(value) < 3:
+            raise serializers.ValidationError("Username must be at least 3 characters long")
+        
+        if CustomUser.objects.filter(username=value).exists():
+            raise serializers.ValidationError("This username is already taken")
+        
+        return value
+
+    def validate_invite_token(self, value):
+        """Validate invite token exists and is valid"""
+        try:
+            user = CustomUser.objects.get(
+                invite_token=value,
+                is_invited=True,
+                is_active=False
+            )
+            
+            # Check if expired
+            if user.invite_expires_at and user.invite_expires_at < timezone.now():
+                raise serializers.ValidationError("This invitation has expired")
+            
+            return value
+            
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Invalid invitation token")
+
+    def validate(self, data):
+        """Validate passwords match"""
+        if data["password"] != data["password_confirm"]:
+            raise serializers.ValidationError({
+                "password_confirm": "Passwords do not match"
+            })
+        return data
+
+    def create(self, validated_data):
+        """Create/activate user account"""
+        invite_token = validated_data.pop("invite_token")
+        password = validated_data.pop("password")
+        validated_data.pop("password_confirm")
+
+        # Get the invited user
+        user = CustomUser.objects.get(
+            invite_token=invite_token,
+            is_invited=True
+        )
+
+        # Update user details
+        user.username = validated_data["username"]
+        user.first_name = validated_data.get("first_name", "")
+        user.last_name = validated_data.get("last_name", "")
+        user.phone = validated_data.get("phone", "")
+        user.set_password(password)
+        
+        # Activate account
+        user.is_active = True
+        user.status = "active"
+        user.invite_token = None
+        user.is_invited = False
+        user.save()
+
+ 
+        LeaveAllocation.objects.get_or_create(
+            user=user,
+            year=timezone.now().year,
+            defaults={
+                'annual_leave_days': 0,
+                'annual_used': 0,
+                'annual_left': 0,
+                'sick_leave_days': 0,
+                'sick_used': 0,
+                'other_leave_days': 0,
+                'other_used': 0
+            }
         )
 
         return user

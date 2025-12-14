@@ -213,7 +213,7 @@ class TaskPriority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
     HIGH = "high", "High"
-    CRITICAL = "critical", "Critical"
+    URGENT = "urgent", "Urgent"
 
 
 class RACIRole(models.TextChoices):
@@ -235,6 +235,7 @@ class Project(models.Model):
         User, on_delete=models.CASCADE, related_name="owned_projects"
     )
     status = models.CharField(max_length=50, default="pending")
+    priority = models.CharField(max_length=20, null=True, blank=True)
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     progress = models.FloatField(default=0.0)

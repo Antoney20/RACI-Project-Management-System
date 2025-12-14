@@ -4,6 +4,8 @@ from mint.models import LeaveAllocation, LeaveRequest,  Milestones, Project, Pro
 
 from django.contrib.auth import get_user_model
 
+from projects.serializers import UserMinimalSerializer
+
 User = get_user_model()
 
 
@@ -80,11 +82,9 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         validated_data['user'] = self.context['request'].user
         return super().create(validated_data)
 
-
 class LeaveApprovalSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=['approve', 'reject'])
     rejection_reason = serializers.CharField(required=False, allow_blank=True)
-
 
 class ProgrammeManagerApprovalSerializer(serializers.Serializer):
     """Serializer for programme manager approval after leave has been taken"""
@@ -94,7 +94,6 @@ class ProgrammeManagerApprovalSerializer(serializers.Serializer):
         if not isinstance(value, bool):
             raise serializers.ValidationError("Must be a boolean value")
         return value
-
 
 class LeaveAllocationSerializer(serializers.ModelSerializer):
     user_details = serializers.SerializerMethodField()
@@ -196,7 +195,6 @@ class LeaveAllocationSerializer(serializers.ModelSerializer):
 
     #     return data
 
-
 class ProjectCreateSerializer(serializers.ModelSerializer):
     accountable_person_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -211,6 +209,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'accountable_person_id',
+            'priority',
             'status',
             'start_date',
             'end_date',
@@ -219,17 +218,16 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
-
 class ProjectListSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     collaborator_count = serializers.SerializerMethodField()
     milestone_count = serializers.SerializerMethodField()
     document_count = serializers.SerializerMethodField()
-    
+    owner = UserMinimalSerializer(read_only=True)
     class Meta:
         model = Project
         fields = [
-            'id', 'name',  'owner', 'owner_name', 
+            'id', 'name',  'owner', 'owner_name',  'description',  'priority',
             'status', 'progress', 'start_date', 'end_date',
             'collaborator_count', 'milestone_count', 'document_count', 
             'created_at'
@@ -244,7 +242,6 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
     def get_document_count(self, obj):
         return obj.documents.count()
-
 
 class MilestoneSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
@@ -397,22 +394,6 @@ class TaskListSerializer(serializers.ModelSerializer):
         users = obj.raci_assignments.values_list('user__username', flat=True).distinct()
         return list(users)
 
-
-class ProjectDocumentSerializer(serializers.ModelSerializer):
-    uploader_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
-    
-    class Meta:
-        model = ProjectDocument
-        fields = [
-            'id', 'project', 'title', 'description', 'document_type',
-            'file', 'file_size', 'mime_type', 'external_url',
-            'uploaded_by', 'uploader_name', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'uploaded_by', 'created_at', 'updated_at', 'file_size']
-    
-    def create(self, validated_data):
-        validated_data['uploaded_by'] = self.context['request'].user
-        return super().create(validated_data)
 
 
 

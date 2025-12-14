@@ -541,6 +541,32 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response(
+                {
+                    "success": False,
+                    "message": "You are not allowed to delete this project.",
+                    "errors": {
+                        "permission": [
+                            "Only administrators can delete projects."
+                        ]
+                    }
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        project = self.get_object()
+        project_name = project.name
+        self.perform_destroy(project)
+
+        return Response(
+            {
+                "success": True,
+                "message": f'Project "{project_name}" was deleted successfully.'
+            },
+            status=status.HTTP_200_OK
+        )
 
 class MilestoneViewSet(viewsets.ModelViewSet):
     """
