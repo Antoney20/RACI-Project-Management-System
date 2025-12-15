@@ -25,7 +25,7 @@ from mint.models import LeaveAllocation
 
 from .models import CustomUser, UserStatus
 from .serializers import (
-    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer,
+    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer, UserListSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerifySerializer, ChangePasswordSerializer, LogoutSerializer
 )
@@ -400,55 +400,102 @@ class EmailVerifyView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_list(request):
-    """Return all users — admin, office admin, supervisor, staff."""
-    users = CustomUser.objects.all()
-    serializer = UserSerializer(users, many=True)
-    return Response(serializer.data)
-
 
 class ManageUserViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing users
+    List, retrieve, update, block/unblock users
+    """
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_serializer_class(self):
+        """Use different serializer for list view"""
+        if self.action == 'list':
+            return UserListSerializer
+        return CustomUserSerializer
+
     def get_queryset(self):
+        """Filter queryset based on user role"""
         user = self.request.user
 
-        if user.is_admin():
-            return CustomUser.objects.all()
-
+        if user.is_admin() or user.role == 'office_admin':
+            return CustomUser.objects.all().order_by('-created_at')
+        
         if user.is_supervisor():
             return CustomUser.objects.filter(
                 Q(created_by=user) | Q(id=user.id)
-            )
+            ).order_by('-created_at')
+        
         return CustomUser.objects.filter(id=user.id)
 
+    def update(self, request, *args, **kwargs):
+        """Update user with permission check"""
+        if not self._can_edit_users(request.user):
+            return Response({
+                "success": False,
+                "message": "You don't have permission to edit users"
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            
+            return Response({
+                "success": True,
+                "message": "User updated successfully",
+                "data": serializer.data
+            })
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def block(self, request, pk=None):
+        """Block a user (admin/office_admin only)"""
+        if not request.user.is_admin() and request.user.role != 'office_admin':
+            return Response({
+                "success": False,
+                "message": "Permission denied"
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         user = self.get_object()
-        if not request.user.is_admin():
-            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         user.status = "blocked"
         user.is_active = False
         user.save()
-        return Response({"detail": f"{user.username} blocked."})
+        
+        return Response({
+            "success": True,
+            "message": f"{user.username} has been blocked"
+        })
 
     @action(detail=True, methods=['post'])
     def unblock(self, request, pk=None):
+        """Unblock a user (admin/office_admin only)"""
+        if not request.user.is_admin() and request.user.role != 'office_admin':
+            return Response({
+                "success": False,
+                "message": "Permission denied"
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         user = self.get_object()
-        if not request.user.is_admin():
-            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         user.status = "active"
         user.is_active = True
         user.save()
-        return Response({"detail": f"{user.username} unblocked."})
+        
+        return Response({
+            "success": True,
+            "message": f"{user.username} has been unblocked"
+        })
 
-
-
+    def _can_edit_users(self, user):
+        """Check if user can edit other users"""
+        return user.is_admin() or user.role == 'office_admin'
 
 
 class InviteUserView(generics.CreateAPIView):

@@ -296,7 +296,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'is_active', 'is_email_verified', 'status',
             'is_staff', 'last_login_at', 'failed_login_attempts',
             'created_at', 'updated_at', 'role', 'department', 'position',
-            'is_admin', 'is_supervisor',           
+            'is_admin', 'is_supervisor', 'is_external_member',          
             "groups",
             "user_permissions",
         ]
@@ -362,42 +362,56 @@ class LogoutSerializer(serializers.Serializer):
 
 
 
-class CustomUserSerializer(serializers.ModelSerializer):
+class UserListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing users"""
+    full_name = serializers.SerializerMethodField()
     
-    groups = serializers.SlugRelatedField(
-        many=True,
-        slug_field='name',
-        read_only=True
-    )
-
-    user_permissions = serializers.SlugRelatedField(
-        many=True,
-        slug_field='codename',
-        read_only=True
-    )
     class Meta:
         model = CustomUser
-        fields = "__all__"
-        read_only_fields = [
-            "id", "created_at", "updated_at", "created_by",
-            "is_superuser", "is_staff",
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'full_name', 'role', 'department', 'position',
+            'is_active', 'is_external_member', 'status',
+            'profile_image', 'created_at'
         ]
+    
+    def get_full_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}".strip() or obj.username
+
+
+class CustomUserSerializer(serializers.ModelSerializer):
+    """Full serializer for user details"""
+    full_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'full_name', 'phone', 'bio', 'profile_image',
+            'role', 'department', 'position', 'is_active',
+            'is_staff', 'is_external_member', 'status',
+            'is_email_verified', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'is_staff'
+        ]
+    
+    def get_full_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}".strip() or obj.username
+    
     def update(self, instance, validated_data):
         user = self.context["request"].user
-
-        # Regular users cannot modify sensitive fields
-        restricted_fields = [
-            "role", "status", "is_active",
-            "created_by", "failed_login_attempts",
-            "account_locked_until", "is_external_member"
-        ]
-
-        if not user.is_admin():
-            for field in restricted_fields:
+        
+        # Restricted fields for non-admin users
+        if not (user.is_admin() or user.role == 'office_admin'):
+            restricted = [
+                'role', 'status', 'is_active',
+                'is_external_member'
+            ]
+            for field in restricted:
                 validated_data.pop(field, None)
-
+        
         return super().update(instance, validated_data)
-
 # ============================================================================
 # mint/serializers.py
 # ============================================================================
