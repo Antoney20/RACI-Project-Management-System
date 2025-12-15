@@ -43,7 +43,10 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             'id': str(obj.user.id),
             'username': obj.user.username,
             'email': obj.user.email,
-            'full_name': obj.user.full_name
+            'full_name': obj.user.full_name,
+            'department' : obj.user.department,
+            'role' : obj.user.role,
+            'profile_image': obj.user.profile_image.url if obj.user.profile_image else None,
         }
     
     def get_approved_by_details(self, obj):

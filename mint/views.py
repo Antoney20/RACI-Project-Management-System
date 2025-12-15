@@ -41,8 +41,8 @@ class LeaveRequestViewSet(ModelViewSet):
         user = self.request.user
 
         # Admins & supervisors see everything
-        if user.is_supervisor() or user.is_admin():
-            return LeaveRequest.objects.all()
+        # if user.is_supervisor() or user.is_admin():
+        #     return LeaveRequest.objects.all()
 
         return LeaveRequest.objects.filter(user=user)
 

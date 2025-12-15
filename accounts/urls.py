@@ -28,7 +28,7 @@ urlpatterns = [
     path('invite/accept/', views.AcceptInviteView.as_view(), name='accept-invite'),
     # User profile
     path('user/me/', views.user_me, name='user-me'),
-    # path('users/', views.user_list, name='user-list'),
+    path('all/users/', views.user_list, name='user-list'),
     path('', include(router.urls)),
 
 ]
