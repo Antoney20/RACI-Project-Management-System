@@ -258,6 +258,7 @@ class MilestoneSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+
 class ProjectDocumentSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
     file_url = serializers.SerializerMethodField()
@@ -269,7 +270,7 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
             'file', 'file_url', 'file_size', 'mime_type', 'external_url',
             'uploaded_by', 'uploaded_by_name', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'file_url']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'file_url', 'uploaded_by'] 
     
     def get_file_url(self, obj):
         if obj.file:

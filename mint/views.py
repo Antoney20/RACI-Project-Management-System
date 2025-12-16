@@ -20,7 +20,7 @@ from core.utils.weekdays import calculate_business_days, get_business_days_in_ra
 
 
 
-from .models import LeaveStatus, Milestones, Project, ProjectDocument, Task,  LeaveRequest, LeaveAllocation, RACIAssignment
+from .models import LeaveStatus, Milestones, Project, ProjectDocument, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
 from .serializers import (
     ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
@@ -29,6 +29,8 @@ from .serializers import (
 from django.utils import timezone
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 
 class LeaveRequestViewSet(ModelViewSet):
@@ -490,8 +492,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            user = CustomUser.objects.get(id=user_id)
-        except CustomUser.DoesNotExist:
+            user = User.objects.get(id=user_id)
+        except  User.DoesNotExist:
             return Response(
                 {"detail": "User not found."},
                 status=status.HTTP_404_NOT_FOUND
@@ -506,9 +508,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         action_text = "created" if created else "updated"
         return Response({
             "success": True,
-            "message": f"{user.get_full_name() or user.username} is now {raci_role} on this project.",
+            "message": f"{user.email or user.username} is now {raci_role} on this project.",
             "assignment_id": str(assignment.id)
         })
+
 
     @action(detail=True, methods=['delete'])
     def remove_role(self, request, pk=None):

@@ -217,12 +217,10 @@ class TaskPriority(models.TextChoices):
 
 
 class RACIRole(models.TextChoices):
-    RESPONSIBLE = "responsible", "Responsible (R)"
-    ACCOUNTABLE = "accountable", "Accountable (A)"
-    CONSULTED = "consulted", "Consulted (C)"
-    INFORMED = "informed", "Informed (I)"
-
-
+    RESPONSIBLE = "R", "Responsible"
+    ACCOUNTABLE = "A", "Accountable"
+    CONSULTED = "C", "Consulted"
+    INFORMED = "I", "Informed"
 
 
 
@@ -256,21 +254,20 @@ class Project(models.Model):
         return self.name
 
 
-# Project collaborators via RACI
+
 class RACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
-    # Renamed from 'task' to 'project' for clarity
     project = models.ForeignKey(
         Project, 
         on_delete=models.CASCADE, 
-        related_name="raci_assignments"  # Clean, unique related_name
+        related_name="raci_assignments" 
     )
     
     user = models.ForeignKey(
         User, 
         on_delete=models.CASCADE, 
-        related_name="project_raci_assignments"  # Changed to avoid clash
+        related_name="project_raci_assignments"  
     )
     raci_role = models.CharField(max_length=20, choices=RACIRole.choices)
 
@@ -281,7 +278,6 @@ class RACIAssignment(models.Model):
         db_table = "p_raci_assignment"
         verbose_name = "RACI Assignment"
         verbose_name_plural = "RACI Assignments"
-        unique_together = ['project', 'user', 'raci_role']  # Optional: prevent duplicates
         indexes = [
             models.Index(fields=["project", "raci_role"]),
             models.Index(fields=["user", "raci_role"]),
@@ -290,7 +286,7 @@ class RACIAssignment(models.Model):
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.raci_role} on {self.project.name}"
 
-class Milestones(models.Model):  # Consider renaming class to Milestone (singular)
+class Milestones(models.Model): 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="proj_milestones")
     title = models.CharField(max_length=200)
