@@ -1,7 +1,9 @@
 import uuid
 from django.conf import settings
 from django.db import models
+from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -208,7 +210,6 @@ class TaskStatus(models.TextChoices):
     COMPLETED = "completed", "Completed"
     CANCELLED = "cancelled", "Cancelled"
 
-
 class TaskPriority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
@@ -224,6 +225,132 @@ class RACIRole(models.TextChoices):
 
 
 
+
+class ProjectStatus(models.TextChoices):
+    NOT_STARTED = "not_started", "Not Started"
+    IN_PROGRESS = "in_progress", "In Progress"
+    ON_HOLD = "on_hold", "On Hold"
+    COMPLETED = "completed", "Completed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+
+
+
+class Sprint(models.Model):
+    """Sprint/Timeline for grouping projects (like Asana sections)"""
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_active = models.BooleanField(default=True)
+    department = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    duration_template = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="e.g., '3 months'"
+    )
+
+    sprint_goals = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Describe the main objectives"
+    )
+
+    expected_deliverables = models.TextField(
+        blank=True,
+        null=True,
+        help_text="List the key deliverables"
+    )
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="created_sprints")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "sprint"
+        ordering = ["-start_date"]
+        indexes = [
+            models.Index(fields=["start_date", "end_date"]),
+            models.Index(fields=["is_active", "department"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date} - {self.end_date})"
+
+    def clean(self):
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            raise ValidationError("End date must be after start date")
+
+
+# class Project(models.Model):
+#     """
+#     Main Project Model
+    
+#     VISIBILITY RULES:
+#     - Admins: See all projects
+#     - Scientific Coordinators: See all projects in their department
+#     - Supervisors: See only projects where they are assigned (any RACI role)
+#     - Staff: See only projects where they are assigned
+#     - External: See only projects where they are Consulted/Informed
+#     """
+#     name = models.CharField(max_length=255, db_index=True)
+#     description = models.TextField(blank=True, null=True)
+#     expected_output = models.TextField(blank=True, null=True)
+    
+#     sprint = models.ForeignKey(Sprint, on_delete=models.SET_NULL, null=True, blank=True, related_name="projects")
+#     start_date = models.DateField()
+#     end_date = models.DateField()
+#     duration_days = models.IntegerField(editable=False, null=True)
+    
+#     status = models.CharField(max_length=50, default="pending")
+#     priority = models.CharField(max_length=20, null=True, blank=True)
+#     progress_percentage = models.IntegerField(default=0)
+    
+#     # Project ownership
+#     accountable_person = models.ForeignKey(
+#         User, 
+#         on_delete=models.PROTECT, 
+#         related_name="accountable_projects",
+#         help_text="Primary person accountable for project success (RACI: Accountable)"
+#     )
+    
+#     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="created_projects")
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     updated_at = models.DateTimeField(auto_now=True)
+
+#     class Meta:
+#         db_table = "projects_project"
+#         ordering = ["-created_at"]
+#         indexes = [
+#             models.Index(fields=["status", "priority"]),
+#             models.Index(fields=["accountable_person"]),
+#         ]
+
+#     def __str__(self):
+#         return self.name
+
+#     def clean(self):
+#         if self.end_date and self.start_date and self.end_date < self.start_date:
+#             raise ValidationError("End date must be after start date")
+        
+#     def save(self, *args, **kwargs):
+#         if self.start_date and self.end_date:
+#             self.duration_days = (self.end_date - self.start_date).days
+#         super().save(*args, **kwargs)
+
+#     @property
+#     def is_overdue(self):
+#         if self.status not in [ProjectStatus.COMPLETED, ProjectStatus.CANCELLED]:
+#             return timezone.now().date() > self.end_date
+#         return False
+
+#     @property
+#     def days_remaining(self):
+#         if self.status not in [ProjectStatus.COMPLETED, ProjectStatus.CANCELLED]:
+#             return (self.end_date - timezone.now().date()).days
+#         return 0
+
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200)
@@ -232,12 +359,15 @@ class Project(models.Model):
     owner = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="owned_projects"
     )
+    sprint = models.ForeignKey(Sprint, on_delete=models.SET_NULL, null=True, blank=True, related_name="projects")
     status = models.CharField(max_length=50, default="pending")
     priority = models.CharField(max_length=20, null=True, blank=True)
     start_date = models.DateTimeField(null=True, blank=True)
+    duration_days = models.IntegerField(editable=False, null=True)
     end_date = models.DateTimeField(null=True, blank=True)
     progress = models.FloatField(default=0.0)
 
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="created_projects")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -250,8 +380,14 @@ class Project(models.Model):
             models.Index(fields=["owner", "status"])
         ]
 
+    def save(self, *args, **kwargs):
+        if self.start_date and self.end_date:
+            self.duration_days = (self.end_date - self.start_date).days
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
+
 
 
 
@@ -313,7 +449,7 @@ class ProjectDocument(models.Model):
     title = models.CharField(max_length=200, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     document_type = models.CharField(max_length=50, blank=True, null=True)
-    file = models.FileField(upload_to="projects/documents/", blank=True, null=True)
+    file = models.FileField(upload_to="projects/documents/%Y/%m/", blank=True, null=True)
     file_size = models.IntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, null=True)
     external_url = models.URLField(blank=True, null=True)

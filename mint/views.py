@@ -19,10 +19,9 @@ from core.utils.weekdays import calculate_business_days, get_business_days_in_ra
 
 
 
-
-from .models import LeaveStatus, Milestones, Project, ProjectDocument, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
+from .models import LeaveStatus, Milestones, Project, ProjectDocument, Sprint, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
 from .serializers import (
-    ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, TaskListSerializer,
+    ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, SprintSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
     LeaveAllocationSerializer
 )
@@ -416,6 +415,62 @@ class LeaveAllocationViewSet(ModelViewSet):
                 "message": "Something went wrong while updating leave allocation.",
                 "errors": str(e)
             }, status=500)
+
+
+
+
+
+
+class SprintViewSet(ModelViewSet):
+    """
+    Sprint/Timeline management
+    
+    Access:
+    - Admin/Office Admin: Full access
+    - Supervisor: View all, create/update sprints in their department
+    - Staff: View only
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = SprintSerializer
+
+    
+    def get_queryset(self):
+        user = self.request.user
+        
+        if user.is_admin() or user.is_office_admin():
+            data = Sprint.objects.all()
+
+            return data
+        
+        if user.is_supervisor():
+            return Sprint.objects.all()
+        
+        # Staff can view all sprints
+        return Sprint.objects.all()
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
+            raise PermissionDenied("Only admins and supervisors can create sprints.")
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        user = self.request.user
+        if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
+            raise PermissionDenied("Only admins and supervisors can update sprints.")
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+            raise PermissionDenied("Only admins can delete sprints.")
+        instance.delete()
+    
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """Get all active sprints"""
+        sprints = self.get_queryset()
+        serializer = self.get_serializer(sprints, many=True)
+        return Response({'success': True, 'data': serializer.data})
 
 
 

@@ -1,12 +1,19 @@
 from rest_framework import serializers
 
-from mint.models import LeaveAllocation, LeaveRequest,  Milestones, Project, ProjectDocument, Task, TaskAttachment, TaskComment, RACIAssignment
+from mint.models import LeaveAllocation, LeaveRequest,  Milestones, Project, ProjectDocument, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
 
 from django.contrib.auth import get_user_model
 
-from projects.serializers import UserMinimalSerializer
 
 User = get_user_model()
+
+class UserMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight user info for nested relations"""
+    full_name = serializers.CharField(read_only=True)
+    
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'full_name', 'role', 'department', 'position', 'profile_image']
 
 
 
@@ -198,11 +205,36 @@ class LeaveAllocationSerializer(serializers.ModelSerializer):
 
     #     return data
 
+class SprintSerializer(serializers.ModelSerializer):
+    """Sprint/Timeline serializer"""
+    created_by = UserMinimalSerializer(read_only=True)
+    project_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Sprint
+        fields = '__all__'
+        read_only_fields = ['created_by', 'created_at', 'updated_at']
+    
+    def get_project_count(self, obj):
+        return obj.projects.count()
+    
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
 class ProjectCreateSerializer(serializers.ModelSerializer):
     accountable_person_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
         source='owner',
         write_only=True
+    )
+    sprint_id = serializers.PrimaryKeyRelatedField(
+        queryset=Sprint.objects.all(),
+        source='sprint',
+        write_only=True,
+        required=False,
+        allow_null=True
     )
 
     class Meta:
@@ -212,6 +244,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'accountable_person_id',
+            'sprint_id',
             'priority',
             'status',
             'start_date',
@@ -221,19 +254,36 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
+
+
+
+class RAssignmentSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
+    user_role = serializers.CharField(source='raci_role', read_only=True)
+    
+    class Meta:
+        model = RACIAssignment
+        fields = ['id', 'user', 'user_role', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
 class ProjectListSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     collaborator_count = serializers.SerializerMethodField()
     milestone_count = serializers.SerializerMethodField()
     document_count = serializers.SerializerMethodField()
     owner = UserMinimalSerializer(read_only=True)
+    created_by = UserMinimalSerializer(read_only=True)
+    raci_assignments = RAssignmentSerializer(many=True, read_only=True)
+  
     class Meta:
         model = Project
         fields = [
-            'id', 'name',  'owner', 'owner_name',  'description',  'priority',
+            'id', 'name', 'owner', 'owner_name', 'created_by', 'description', 'priority',
             'status', 'progress', 'start_date', 'end_date',
-            'collaborator_count', 'milestone_count', 'document_count', 
-            'created_at'
+            'collaborator_count', 'milestone_count', 'document_count',
+            'raci_assignments',
+            'created_at', 
         ]
         read_only_fields = ['id', 'created_at']
     
