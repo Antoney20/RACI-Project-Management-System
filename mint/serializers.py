@@ -309,14 +309,39 @@ class MilestoneSerializer(serializers.ModelSerializer):
 
 
 
+# class ProjectDocumentSerializer(serializers.ModelSerializer):
+#     uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
+#     file_url = serializers.SerializerMethodField()
+    
+#     class Meta:
+#         model = ProjectDocument
+#         fields = [
+#             'id', 'project', 'title', 'description', 'document_type',
+#             'file', 'file_url', 'file_size', 'mime_type', 'external_url',
+#             'uploaded_by', 'uploaded_by_name', 'created_at', 'updated_at'
+#         ]
+#         read_only_fields = ['id', 'created_at', 'updated_at', 'file_url', 'uploaded_by'] 
+    
+#     def get_file_url(self, obj):
+#         if obj.file:
+#             return obj.file.url
+#         return None
+
+
 class ProjectDocumentSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
     file_url = serializers.SerializerMethodField()
     
+    # Project details
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    project_status = serializers.CharField(source='project.status', read_only=True)
+    project_owner_name = serializers.CharField(source='project.owner.full_name', read_only=True)
+    
     class Meta:
         model = ProjectDocument
         fields = [
-            'id', 'project', 'title', 'description', 'document_type',
+            'id', 'project', 'project_name', 'project_status', 'project_owner_name',
+            'title', 'description', 'document_type',
             'file', 'file_url', 'file_size', 'mime_type', 'external_url',
             'uploaded_by', 'uploaded_by_name', 'created_at', 'updated_at'
         ]
@@ -326,6 +351,7 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
         if obj.file:
             return obj.file.url
         return None
+
 
 
 class RACIAssignmentSerializer(serializers.ModelSerializer):
@@ -358,13 +384,13 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
     milestones = MilestoneSerializer(many=True, read_only=True)
     documents = ProjectDocumentSerializer(many=True, read_only=True)
-    raci_assignments = RACIAssignmentSerializer(many=True, read_only=True, source='raci_assignments')
+    raci_assignments = RACIAssignmentSerializer(many=True, read_only=True)
     
     class Meta:
         model = Project
         fields = [
             'id', 'name',  'description', 'owner', 'owner_name',
-            'collaborators_list', 'status', 'progress',
+            'status', 'progress',
             'start_date', 'end_date',  'created_at', 'updated_at', 'milestones', 'documents', 'raci_assignments'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

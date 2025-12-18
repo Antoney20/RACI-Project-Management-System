@@ -41,9 +41,8 @@ class LeaveRequestViewSet(ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        # Admins & supervisors see everything
-        # if user.is_supervisor() or user.is_admin():
-        #     return LeaveRequest.objects.all()
+        if user.is_supervisor() or user.is_admin():
+            return LeaveRequest.objects.all()
 
         return LeaveRequest.objects.filter(user=user)
 
@@ -648,27 +647,67 @@ class MilestoneViewSet(viewsets.ModelViewSet):
         ).distinct().select_related('project')
 
 
+# class ProjectDocumentViewSet(viewsets.ModelViewSet):
+#     """
+#     Documents/Notes for projects the user has access to
+#     """
+#     serializer_class = ProjectDocumentSerializer
+#     permission_classes = [IsAuthenticated]
+#     # filter_backends = [OrderingFilter]
+#     ordering = ['-created_at']
+
+#     def get_queryset(self):
+#         user = self.request.user
+
+#         if user.is_staff:
+#             return ProjectDocument.objects.all().select_related('project', 'uploaded_by')
+
+#         return ProjectDocument.objects.filter(
+#             Q(project__owner=user) | Q(project__raci_assignments__user=user)
+#         ).distinct().select_related('project', 'uploaded_by')
+
+#     def perform_create(self, serializer):
+#         serializer.save(uploaded_by=self.request.user)
+
+
 class ProjectDocumentViewSet(viewsets.ModelViewSet):
     """
-    Documents/Notes for projects the user has access to
+    ViewSet for project documents with role-based access control.
     """
     serializer_class = ProjectDocumentSerializer
     permission_classes = [IsAuthenticated]
-    # filter_backends = [OrderingFilter]
     ordering = ['-created_at']
 
     def get_queryset(self):
         user = self.request.user
-
+        
         if user.is_staff:
-            return ProjectDocument.objects.all().select_related('project', 'uploaded_by')
-
+            return ProjectDocument.objects.all().select_related(
+                'project', 'project__owner', 'uploaded_by'
+            )
+        
         return ProjectDocument.objects.filter(
             Q(project__owner=user) | Q(project__raci_assignments__user=user)
-        ).distinct().select_related('project', 'uploaded_by')
+        ).distinct().select_related(
+            'project', 'project__owner', 'uploaded_by'
+        )
 
     def perform_create(self, serializer):
         serializer.save(uploaded_by=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def by_project(self, request):
+        """Get all documents for a specific project"""
+        project_id = request.query_params.get('project_id')
+        if not project_id:
+            return Response(
+                {'error': 'project_id parameter required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        docs = self.get_queryset().filter(project_id=project_id)
+        serializer = self.get_serializer(docs, many=True)
+        return Response(serializer.data)
 
 
 class RACIAssignmentViewSet(viewsets.ModelViewSet):
