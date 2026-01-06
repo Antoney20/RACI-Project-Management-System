@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from mint.models import LeaveAllocation, LeaveRequest,  Milestones, Project, ProjectDocument, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
+from mint.models import LeaveAllocation, LeaveRequest, MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
 
 from django.contrib.auth import get_user_model
 
@@ -399,6 +399,31 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
 
 
+class ProjectCommentSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
+    
+    class Meta:
+        model = ProjectComment
+        fields = ['id', 'project', 'user', 'content', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+
+class ProjectNoteSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
+    
+    class Meta:
+        model = ProjectNote
+        fields = ['id', 'project', 'user', 'title', 'content', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+
+class MilestoneCommentSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
+    
+    class Meta:
+        model = MilestoneComment
+        fields = ['id', 'milestone', 'user', 'content', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
 
 
 

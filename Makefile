@@ -46,6 +46,9 @@ superuser:
 
 su: superuser
 
+leave:
+	poetry run python manage.py leave
+
 app:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "$(RED)Error: No app name provided. Usage: make app <name>$(RESET)"; \

@@ -388,9 +388,6 @@ class Project(models.Model):
     def __str__(self):
         return self.name
 
-
-
-
 class RACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
@@ -473,7 +470,85 @@ class ProjectDocument(models.Model):
 
 
 
+class ProjectComment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, 
+        on_delete=models.CASCADE, 
+        related_name="comments"
+    )
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="project_comments"
+    )
+    content = models.TextField()
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = "mint_project_comment"
+        verbose_name = "Project Comment"
+        verbose_name_plural = "Project Comments"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Comment by {self.user.get_full_name()} on {self.project.name}"
+
+
+class ProjectNote(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, 
+        on_delete=models.CASCADE, 
+        related_name="notes"
+    )
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="project_notes"
+    )
+    title = models.CharField(max_length=200, blank=True, null=True)
+    content = models.TextField()
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mint_project_note"
+        verbose_name = "Project Note"
+        verbose_name_plural = "Project Notes"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Note by {self.user.get_full_name()} on {self.project.name}"
+
+
+class MilestoneComment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    milestone = models.ForeignKey(
+        Milestones, 
+        on_delete=models.CASCADE, 
+        related_name="comments"
+    )
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="milestone_comments"
+    )
+    content = models.TextField()
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "mint_milestone_comment"
+        verbose_name = "Milestone Comment"
+        verbose_name_plural = "Milestone Comments"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Comment by {self.user.get_full_name()} on {self.milestone.title}"
 
 
 

@@ -23,7 +23,8 @@ from .models import LeaveStatus, Milestones, Project, ProjectDocument, Sprint, T
 from .serializers import (
     ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, SprintSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
-    LeaveAllocationSerializer
+    LeaveAllocationSerializer,
+    ProjectCommentSerializer, ProjectNoteSerializer, MilestoneCommentSerializer
 )
 from django.utils import timezone
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -35,8 +36,8 @@ User = get_user_model()
 class LeaveRequestViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveRequestSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'leave_type', 'user']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['status', 'leave_type', 'user']
 
     def get_queryset(self):
         user = self.request.user
@@ -58,7 +59,6 @@ class LeaveRequestViewSet(ModelViewSet):
                 "message": "You already have a leave request pending review."
             })
 
-        # Check for overlapping approved leaves
         approved_leaves = LeaveRequest.objects.filter(
             user=user,
             status=LeaveStatus.APPROVED,
@@ -76,9 +76,9 @@ class LeaveRequestViewSet(ModelViewSet):
         # Calculate business days
         num_days = calculate_business_days(start.date(), end.date())
         
-        current_year = timezone.now().year
+        # current_year = timezone.now().year
 
-        allocation = user.leave_allocations.filter(year=current_year).first()
+        allocation = user.leave_allocations
 
         if not allocation:
             raise serializers.ValidationError({
@@ -316,8 +316,8 @@ class LeaveRequestViewSet(ModelViewSet):
 class LeaveAllocationViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['year', 'user']
+    # filter_backends = [DjangoFilterBackend]
+    # filterset_fields = ['year', 'user']
 
     def get_queryset(self):
         user = self.request.user
@@ -625,6 +625,131 @@ class ProjectViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+
+    #  new to manipulate
+
+
+    @action(detail=True, methods=['get', 'post'])
+    def comments(self, request, pk=None):
+        """Get all comments or create a new comment for a specific project"""
+        project = self.get_object()
+        
+        if request.method == 'GET':
+            comments = project.comments.filter(project=project.id).select_related('user').order_by('-created_at')
+            serializer = ProjectCommentSerializer(comments, many=True)
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            serializer = ProjectCommentSerializer(data={
+                'project': project.id, 
+                'content': request.data.get('content'),
+                **request.data
+            })
+            if serializer.is_valid():
+                serializer.save(user=request.user, project=project)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+    @action(detail=True, methods=['get', 'post'])
+    def notes(self, request, pk=None):
+        """Get all notes or create a new note for a project"""
+        project = self.get_object()
+        
+        if request.method == 'GET':
+            notes = project.notes.all()
+            serializer = ProjectNoteSerializer(notes, many=True)
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            serializer = ProjectNoteSerializer(data={'project': project.id, **request.data})
+            if serializer.is_valid():
+                serializer.save(user=request.user)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+    @action(detail=True, methods=['patch'], url_path='update_progress')
+    def update_progress(self, request, pk=None):
+        """Update project progress and/or status"""
+        project = self.get_object()
+        
+        progress = request.data.get('progress')
+        status_value = request.data.get('status')
+        
+        if progress is not None:
+            project.progress = progress
+        if status_value:
+            project.status = status_value
+        
+        project.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Progress updated successfully',
+            'progress': project.progress,
+            'status': project.status
+        })
+
+
+    @action(detail=True, methods=['post'], url_path='mark_complete')
+    def mark_complete(self, request, pk=None):
+        """Mark project as completed"""
+        project = self.get_object()
+        project.status = 'completed'
+        project.progress = 100.0
+        project.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Project marked as complete'
+        })
+
+
+    @action(detail=True, methods=['post'], url_path='transfer_ownership')
+    def transfer_ownership(self, request, pk=None):
+        """Transfer project ownership to another user"""
+        project = self.get_object()
+        new_owner_id = request.data.get('new_owner_id')
+        
+        if not new_owner_id:
+            return Response(
+                {'success': False, 'message': 'new_owner_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            new_owner = User.objects.get(id=new_owner_id)
+            project.owner = new_owner
+            project.save()
+            
+            return Response({
+                'success': True,
+                'message': f'Ownership transferred to {new_owner.get_full_name()}'
+            })
+        except User.DoesNotExist:
+            return Response(
+                {'success': False, 'message': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+    @action(detail=True, methods=['post'], url_path='notify_supervisor')
+    def notify_supervisor(self, request, pk=None):
+        """Send notification to project supervisor/owner"""
+        project = self.get_object()
+        message = request.data.get('message', '')
+        
+
+        return Response({
+            'success': True,
+            'message': 'Supervisor notified successfully'
+        })
+
+
 class MilestoneViewSet(viewsets.ModelViewSet):
     """
     Milestones for projects the user has access to (via ownership or RACI)
@@ -632,7 +757,7 @@ class MilestoneViewSet(viewsets.ModelViewSet):
     serializer_class = MilestoneSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['is_completed']
+    filterset_fields = ['is_completed', 'project'] 
     ordering_fields = ['due_date', 'created_at']
     ordering = ['due_date']
 
@@ -646,29 +771,28 @@ class MilestoneViewSet(viewsets.ModelViewSet):
             Q(project__owner=user) | Q(project__raci_assignments__user=user)
         ).distinct().select_related('project')
 
-
-# class ProjectDocumentViewSet(viewsets.ModelViewSet):
-#     """
-#     Documents/Notes for projects the user has access to
-#     """
-#     serializer_class = ProjectDocumentSerializer
-#     permission_classes = [IsAuthenticated]
-#     # filter_backends = [OrderingFilter]
-#     ordering = ['-created_at']
-
-#     def get_queryset(self):
-#         user = self.request.user
-
-#         if user.is_staff:
-#             return ProjectDocument.objects.all().select_related('project', 'uploaded_by')
-
-#         return ProjectDocument.objects.filter(
-#             Q(project__owner=user) | Q(project__raci_assignments__user=user)
-#         ).distinct().select_related('project', 'uploaded_by')
-
-#     def perform_create(self, serializer):
-#         serializer.save(uploaded_by=self.request.user)
-
+    @action(detail=True, methods=['get', 'post'])
+    def comments(self, request, pk=None):
+        """Get all comments or create a new comment for a specific milestone"""
+        milestone = self.get_object()
+        
+        if request.method == 'GET':
+            comments = milestone.comments.filter(
+                milestone_id=milestone.id
+            ).select_related('user').order_by('-created_at')
+            
+            serializer = MilestoneCommentSerializer(comments, many=True)
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            serializer = MilestoneCommentSerializer(
+                data={'milestone': milestone.id, 'content': request.data.get('content')}
+            )
+            if serializer.is_valid():
+                # Explicitly set both user and milestone
+                serializer.save(user=request.user, milestone=milestone)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ProjectDocumentViewSet(viewsets.ModelViewSet):
     """
