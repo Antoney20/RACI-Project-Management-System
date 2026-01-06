@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from mint.models import LeaveAllocation, LeaveRequest, MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
+from mint.models import CalendarEvent, LeaveAllocation, LeaveRequest, MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, PublicHoliday, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
 
 from django.contrib.auth import get_user_model
 
@@ -429,6 +429,127 @@ class MilestoneCommentSerializer(serializers.ModelSerializer):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class CalendarEventSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    project_name = serializers.SerializerMethodField()
+    milestone_title = serializers.SerializerMethodField()
+    color = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CalendarEvent
+        fields = [
+            'id', 'title', 'description', 'event_type',
+            'start_date', 'end_date', 'all_day',
+            'user', 'user_name', 
+            'project', 'project_name',
+            'milestone', 'milestone_title',
+            'leave_request', 'is_public', 'color',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_user_name(self, obj):
+        return obj.user.get_full_name() if obj.user else None
+    
+    def get_project_name(self, obj):
+        return obj.project.name if obj.project else None
+    
+    def get_milestone_title(self, obj):
+        return obj.milestone.title if obj.milestone else None
+    
+    def get_color(self, obj):
+        if obj.color:
+            return obj.color
+        
+        # Default colors by event type
+        colors = {
+            'leave': '#FF6B6B',
+            'project_deadline': '#4ECDC4',
+            'milestone': '#45B7D1',
+            'public_holiday': '#FFA07A',
+            'weekend': '#D3D3D3',
+            'meeting': '#95E1D3',
+            'other': '#A8E6CF',
+        }
+        return colors.get(obj.event_type, '#999999')
+
+
+class PublicHolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PublicHoliday
+        fields = ['id', 'name', 'date', 'year', 'is_recurring', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class TaskCommentSerializer(serializers.ModelSerializer):

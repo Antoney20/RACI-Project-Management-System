@@ -221,6 +221,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     
     def is_external(self):
         return self.is_external_member
+    
+    def get_full_name(self):
+        return f"{self.first_name or ''} {self.last_name or ''}".strip()
+
 
 
     # --------------------

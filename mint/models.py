@@ -283,73 +283,7 @@ class Sprint(models.Model):
             raise ValidationError("End date must be after start date")
 
 
-# class Project(models.Model):
-#     """
-#     Main Project Model
-    
-#     VISIBILITY RULES:
-#     - Admins: See all projects
-#     - Scientific Coordinators: See all projects in their department
-#     - Supervisors: See only projects where they are assigned (any RACI role)
-#     - Staff: See only projects where they are assigned
-#     - External: See only projects where they are Consulted/Informed
-#     """
-#     name = models.CharField(max_length=255, db_index=True)
-#     description = models.TextField(blank=True, null=True)
-#     expected_output = models.TextField(blank=True, null=True)
-    
-#     sprint = models.ForeignKey(Sprint, on_delete=models.SET_NULL, null=True, blank=True, related_name="projects")
-#     start_date = models.DateField()
-#     end_date = models.DateField()
-#     duration_days = models.IntegerField(editable=False, null=True)
-    
-#     status = models.CharField(max_length=50, default="pending")
-#     priority = models.CharField(max_length=20, null=True, blank=True)
-#     progress_percentage = models.IntegerField(default=0)
-    
-#     # Project ownership
-#     accountable_person = models.ForeignKey(
-#         User, 
-#         on_delete=models.PROTECT, 
-#         related_name="accountable_projects",
-#         help_text="Primary person accountable for project success (RACI: Accountable)"
-#     )
-    
-#     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="created_projects")
-#     created_at = models.DateTimeField(auto_now_add=True)
-#     updated_at = models.DateTimeField(auto_now=True)
 
-#     class Meta:
-#         db_table = "projects_project"
-#         ordering = ["-created_at"]
-#         indexes = [
-#             models.Index(fields=["status", "priority"]),
-#             models.Index(fields=["accountable_person"]),
-#         ]
-
-#     def __str__(self):
-#         return self.name
-
-#     def clean(self):
-#         if self.end_date and self.start_date and self.end_date < self.start_date:
-#             raise ValidationError("End date must be after start date")
-        
-#     def save(self, *args, **kwargs):
-#         if self.start_date and self.end_date:
-#             self.duration_days = (self.end_date - self.start_date).days
-#         super().save(*args, **kwargs)
-
-#     @property
-#     def is_overdue(self):
-#         if self.status not in [ProjectStatus.COMPLETED, ProjectStatus.CANCELLED]:
-#             return timezone.now().date() > self.end_date
-#         return False
-
-#     @property
-#     def days_remaining(self):
-#         if self.status not in [ProjectStatus.COMPLETED, ProjectStatus.CANCELLED]:
-#             return (self.end_date - timezone.now().date()).days
-#         return 0
 
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -551,6 +485,247 @@ class MilestoneComment(models.Model):
         return f"Comment by {self.user.get_full_name()} on {self.milestone.title}"
 
 
+
+
+
+class EventType(models.TextChoices):
+    LEAVE = "leave", "Leave"
+    PROJECT_DEADLINE = "project_deadline", "Project Deadline"
+    MILESTONE = "milestone", "Milestone"
+    PUBLIC_HOLIDAY = "public_holiday", "Public Holiday"
+    WEEKEND = "weekend", "Weekend"
+    MEETING = "meeting", "Meeting"
+    OTHER = "other", "Other"
+
+
+class CalendarEvent(models.Model):
+    """Unified calendar events for all activities"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    
+    event_type = models.CharField(
+        max_length=30,
+        choices=EventType.choices
+    )
+    
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    all_day = models.BooleanField(default=False)
+    
+    # Link to related objects
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="calendar_events",
+        help_text="User associated with this event (for leaves, personal events)"
+    )
+    
+    project = models.ForeignKey(
+        "Project",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="calendar_events"
+    )
+    
+    milestone = models.ForeignKey(
+        "Milestones",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="calendar_events"
+    )
+    
+    leave_request = models.ForeignKey(
+        "LeaveRequest",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="calendar_events"
+    )
+    
+    is_public = models.BooleanField(
+        default=False,
+        help_text="Public holidays, weekends visible to all"
+    )
+    
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        help_text="Hex color code for display"
+    )
+    
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_events"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mint_calendar_event"
+        verbose_name = "Calendar Event"
+        verbose_name_plural = "Calendar Events"
+        ordering = ["start_date"]
+        indexes = [
+            models.Index(fields=["start_date", "end_date"]),
+            models.Index(fields=["event_type", "is_public"]),
+            models.Index(fields=["user", "start_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.event_type}) - {self.start_date.date()}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class PublicHoliday(models.Model):
+    """Kenya public holidays"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    name = models.CharField(max_length=200)
+    date = models.DateField()
+    year = models.IntegerField()
+    is_recurring = models.BooleanField(
+        default=False,
+        help_text="Recurs annually on same date"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "mint_public_holiday"
+        verbose_name = "Public Holiday"
+        verbose_name_plural = "Public Holidays"
+        ordering = ["date"]
+        unique_together = [["date", "year"]]
+        indexes = [
+            models.Index(fields=["date", "year"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} - {self.date}"
 
 
 ###later

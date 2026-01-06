@@ -13,7 +13,7 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 
-from django.db.models import Q
+from django.db.models import Q, Count
 
 from core.utils.weekdays import calculate_business_days, get_business_days_in_range
 
@@ -36,15 +36,25 @@ User = get_user_model()
 class LeaveRequestViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveRequestSerializer
-    # filter_backends = [DjangoFilterBackend]
-    # filterset_fields = ['status', 'leave_type', 'user']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'leave_type', 'user']
 
+    # def get_queryset(self):
+    #     user = self.request.user
+
+    #     if user.is_supervisor() or user.is_admin():
+    #         return LeaveRequest.objects.all()
+
+    #     return LeaveRequest.objects.filter(user=user)
     def get_queryset(self):
         user = self.request.user
-
-        if user.is_supervisor() or user.is_admin():
-            return LeaveRequest.objects.all()
-
+        
+        # For detail actions (approve, reject, cancel) - allow access to all if admin/supervisor
+        if self.action in ['approve', 'reject', 'retrieve', 'update', 'partial_update', 'destroy']:
+            if user.is_supervisor() or user.is_admin():
+                return LeaveRequest.objects.all()
+        
+        # For list and other actions - only return user's own leaves
         return LeaveRequest.objects.filter(user=user)
 
     def perform_create(self, serializer):
@@ -76,9 +86,9 @@ class LeaveRequestViewSet(ModelViewSet):
         # Calculate business days
         num_days = calculate_business_days(start.date(), end.date())
         
-        # current_year = timezone.now().year
+        current_year = timezone.now().year
 
-        allocation = user.leave_allocations
+        allocation = user.leave_allocations.filter(year=current_year).first()
 
         if not allocation:
             raise serializers.ValidationError({
@@ -123,6 +133,16 @@ class LeaveRequestViewSet(ModelViewSet):
             }, status=403)
 
         return super().destroy(request, *args, **kwargs)
+    
+    
+    
+    def all(self, request):
+        user = self.request.user
+
+        if user.is_supervisor() or user.is_admin():
+            return LeaveRequest.objects.all()
+        return LeaveRequest.objects.all()
+        # return LeaveRequest.objects.filter(user=user)
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -271,53 +291,169 @@ class LeaveRequestViewSet(ModelViewSet):
 
         return Response(LeaveRequestSerializer(qs, many=True).data)
 
+
     @action(detail=False, methods=['get'])
-    def by_dates(self, request):
+    def leave_stats(self, request):
         """
-        Get leave requests grouped by business days only.
-        Returns a dictionary with dates as keys and leave data as values.
-        Only includes business days (Monday-Friday).
+        Team leave analytics.
+        - Today stats
+        - Grouped by business day
+        - By leave type
+        - By status
+        Supervisor/Admin only.
         """
-        qs = self.get_queryset()
-        grouped = defaultdict(list)
+        user = request.user
 
-        for leave in qs:
-            if not leave.start_date or not leave.end_date:
-                continue
+        if not (user.is_supervisor() or user.is_admin()):
+            return Response(
+                {"success": False, "message": "Permission denied"},
+                status=403
+            )
 
-            # Get only business days in the leave period
+        today = timezone.now().date()
+
+        # ---- Base data ----
+        all_leaves = LeaveRequest.objects.all()
+        users_qs = User.objects.filter(is_active=True)
+        total_users = users_qs.count()
+
+        # ---- Approved leaves today ----
+        approved_today = all_leaves.filter(
+            status=LeaveStatus.APPROVED,
+            start_date__lte=today,
+            end_date__gte=today
+        )
+
+        today_on_leave = []
+        for leave in approved_today:
+            if today.weekday() < 5:
+                today_on_leave.append({
+                    "user": {
+                        "id": str(leave.user.id),
+                        "full_name": leave.user.full_name,
+                        "email": leave.user.email
+                    },
+                    "leave_type": leave.leave_type,
+                    "start_date": leave.start_date,
+                    "end_date": leave.end_date
+                })
+
+        on_leave_today_count = len(today_on_leave)
+
+        # ---- Grouped by business day ----
+        grouped_by_day = defaultdict(lambda: {
+            "count": 0,
+            "users": []
+        })
+
+        approved_leaves = all_leaves.filter(status=LeaveStatus.APPROVED)
+
+        for leave in approved_leaves:
             business_days = get_business_days_in_range(
                 leave.start_date.date(),
                 leave.end_date.date()
             )
 
-            leave_data = LeaveRequestSerializer(leave).data
-
-            # Precompute user details once
-            user_info = {
-                "user_id": str(leave.user.id),
-                "username": leave.user.username,
-                "full_name": leave.user.full_name,
-                "email": leave.user.email,
-            }
-
-            # Add leave to only business days
-            for business_day in business_days:
-                grouped[str(business_day)].append({
-                    "user": user_info,
-                    "leave": leave_data
+            for day in business_days:
+                grouped_by_day[str(day)]["count"] += 1
+                grouped_by_day[str(day)]["users"].append({
+                    "user_id": str(leave.user.id),
+                    "full_name": leave.user.full_name,
+                    "leave_type": leave.leave_type
                 })
-                
+
+        # ---- By leave type (approved only) ----
+        by_leave_type = (
+            approved_leaves
+            .values("leave_type")
+            .annotate(count=Count("id"))
+        )
+
+        leave_type_stats = {
+            item["leave_type"]: item["count"]
+            for item in by_leave_type
+        }
+
+        # ---- By status (all) ----
+        by_status = (
+            all_leaves
+            .values("status")
+            .annotate(count=Count("id"))
+        )
+
+        status_stats = {
+            item["status"]: item["count"]
+            for item in by_status
+        }
+
         return Response({
             "success": True,
-            "grouped_by_date": dict(grouped)
+            "today": {
+                "date": today,
+                "counts": {
+                    "on_leave": on_leave_today_count,
+                    "available": max(total_users - on_leave_today_count, 0),
+                    "total_users": total_users
+                },
+                "on_leave": today_on_leave
+            },
+            "by_day": dict(grouped_by_day),
+            "by_leave_type": leave_type_stats,
+            "by_status": status_stats
         })
+
+
+
+    # @action(detail=False, methods=['get'])
+    # def by_dates(self, request):
+    #     """
+    #     Get leave requests grouped by business days only.
+    #     Returns a dictionary with dates as keys and leave data as values.
+    #     Only includes business days (Monday-Friday).
+    #     """
+    #     qs = self.get_queryset()
+    #     grouped = defaultdict(list)
+
+    #     for leave in qs:
+    #         if not leave.start_date or not leave.end_date:
+    #             continue
+
+    #         # Get only business days in the leave period
+    #         business_days = get_business_days_in_range(
+    #             leave.start_date.date(),
+    #             leave.end_date.date()
+    #         )
+
+    #         leave_data = LeaveRequestSerializer(leave).data
+
+    #         # Precompute user details once
+    #         user_info = {
+    #             "user_id": str(leave.user.id),
+    #             "username": leave.user.username,
+    #             "full_name": leave.user.full_name,
+    #             "email": leave.user.email,
+    #         }
+
+    #         # Add leave to only business days
+    #         for business_day in business_days:
+    #             grouped[str(business_day)].append({
+    #                 "user": user_info,
+    #                 "leave": leave_data
+    #             })
+                
+    #     return Response({
+    #         "success": True,
+    #         "grouped_by_date": dict(grouped)
+    #     })
+
+
+
 
 class LeaveAllocationViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
-    # filter_backends = [DjangoFilterBackend]
-    # filterset_fields = ['year', 'user']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['year', 'user']
 
     def get_queryset(self):
         user = self.request.user

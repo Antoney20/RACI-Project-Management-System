@@ -30,5 +30,7 @@ urlpatterns = [
     path('user/me/', views.user_me, name='user-me'),
     path('all/users/', views.user_list, name='user-list'),
     path('', include(router.urls)),
+    
+    path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
 
 ]
