@@ -304,6 +304,26 @@ class Project(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="created_projects")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    
+    
+    project_link = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Link to project resources, documentation, or repository"
+    )
+    
+    notify_supervisor = models.BooleanField(
+        default=False,
+        help_text="Notify supervisor/informed users when project status changes"
+    )
+    
+    comment_notify = models.BooleanField(
+        default=True,
+        help_text="Send notifications when comments are added to project reviews"
+    )
+    
 
     class Meta:
         db_table = "mint_project"
@@ -483,6 +503,185 @@ class MilestoneComment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.user.get_full_name()} on {self.milestone.title}"
+
+
+
+
+
+
+
+class ProjectReviewStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ON_REVIEW = "on_review", "On Review"
+    SUCCESSFULLY_REVIEWED = "successfully_reviewed", "Successfully Reviewed"
+    CHANGES_REQUESTED = "changes_requested", "Changes Requested"
+
+
+
+
+class ProjectReview(models.Model):
+    """Review for completed projects by supervisors/informed users"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="project_review",
+        help_text="The project being reviewed"
+    )
+    
+    status = models.CharField(
+        max_length=50,
+        choices=ProjectReviewStatus.choices,
+        default=ProjectReviewStatus.PENDING,
+        help_text="Current status of the review"
+    )
+    
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="project_reviews_conducted",
+        help_text="Primary reviewer (typically supervisor/informed user)"
+    )
+    
+    review_summary = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Overall review summary and feedback"
+    )
+    
+    
+    submitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the project was submitted for review"
+    )
+    
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the review was completed"
+    )
+    
+    is_closed = models.BooleanField(
+        default=False,
+        help_text="Mark project review as closed/completed"
+    )
+    
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when project review was closed"
+    )
+    
+    
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="project_reviews_created"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "project_review"
+        verbose_name = "Project Review"
+        verbose_name_plural = "Project Reviews"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["project", "status"]),
+            models.Index(fields=["reviewer", "status"]),
+            models.Index(fields=["status", "submitted_at"]),
+        ]
+
+
+    def save(self, *args, **kwargs):
+        from django.utils import timezone
+        
+        # Auto-set reviewed_at when status changes to successfully_reviewed
+        if self.status == ProjectReviewStatus.SUCCESSFULLY_REVIEWED and not self.reviewed_at:
+            self.reviewed_at = timezone.now()
+            
+        # Set submitted_at on first save if not set
+        if not self.pk and not self.submitted_at:
+            self.submitted_at = timezone.now()
+            
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Review for {self.project.name} - {self.status()}"
+
+
+class ProjectReviewComment(models.Model):
+    """Comments on project reviews"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    review = models.ForeignKey(
+        ProjectReview,
+        on_delete=models.CASCADE,
+        related_name="comments",
+        help_text="The review this comment belongs to"
+    )
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="review_comments",
+        help_text="User who made the comment"
+    )
+    
+    comment = models.TextField(
+        help_text="Comment content"
+    )
+    
+    attachment_links = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of URLs for attachments/references"
+    )
+    
+    is_resolved = models.BooleanField(
+        default=False,
+        help_text="Mark if this comment/issue has been resolved"
+    )
+    
+    parent_comment = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="replies",
+        help_text="Parent comment for threaded discussions"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "project_review_comment"
+        verbose_name = "Project Review Comment"
+        verbose_name_plural = "Project Review Comments"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["review", "created_at"]),
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["is_resolved"]),
+        ]
+
+    def __str__(self):
+        return f"Comment by {self.user.get_full_name() or self.user.username} on {self.review}"
+
+
+
+
+
+
+
+
 
 
 

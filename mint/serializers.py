@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from mint.models import CalendarEvent, LeaveAllocation, LeaveRequest, MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, PublicHoliday, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
+from mint.models import CalendarEvent, LeaveAllocation, LeaveRequest, MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, ProjectReview, ProjectReviewComment, PublicHoliday, Sprint, Task, TaskAttachment, TaskComment, RACIAssignment
 
 from django.contrib.auth import get_user_model
 
@@ -429,6 +429,31 @@ class MilestoneCommentSerializer(serializers.ModelSerializer):
 
 
 
+class ProjectReviewCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.full_name', read_only=True)
+    
+    class Meta:
+        model = ProjectReviewComment
+        fields = ['id', 'review', 'user', 'user_name', 'comment', 
+                  'attachment_links', 'is_resolved', 'parent_comment', 
+                  'created_at', 'updated_at']
+        read_only_fields = ['user', 'created_at', 'updated_at']
+
+
+class ProjectReviewSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    project_owner = serializers.CharField(source='project.owner.full_name', read_only=True)
+    reviewer_name = serializers.CharField(source='reviewer.full_name', read_only=True)
+    comments = ProjectReviewCommentSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = ProjectReview
+        fields = ['id', 'project', 'project_name', 'project_owner', 'status', 
+                  'reviewer', 'reviewer_name', 'review_summary', 'submitted_at', 
+                  'reviewed_at', 'is_closed', 'closed_at', 'created_by', 
+                  'created_at', 'updated_at', 'comments']
+        read_only_fields = ['created_by', 'submitted_at', 'reviewed_at', 
+                            'closed_at', 'created_at', 'updated_at']
 
 
 

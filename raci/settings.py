@@ -126,9 +126,24 @@ INSTALLED_APPS = [
     'corsheaders',
     'auditlog',
     # "rest_framework_simplejwt.token_blacklist"
+    
+    
+    'django_crontab'
+
+
+
 
 
 ]
+
+
+
+
+CRONJOBS = [
+    # Every day at 8:00 AM - Move completed projects to review
+    ('0 8 * * *', 'mint.cron.for_review.move_completed_projects_to_review'),
+]
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -302,3 +317,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 FRONTEND_URL = "http://localhost:3000"
+
+
+
