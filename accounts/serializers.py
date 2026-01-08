@@ -232,7 +232,7 @@ class LoginSerializer(serializers.Serializer):
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
-    role = serializers.SerializerMethodField()
+    
     
     
     groups = serializers.SlugRelatedField(

@@ -314,6 +314,15 @@ class Project(models.Model):
         help_text="Link to project resources, documentation, or repository"
     )
     
+    
+    supervisors = models.ManyToManyField(
+        User,
+        related_name="supervised_projects",
+        blank=True,
+        verbose_name="Project Supervisors",
+        help_text="The supervisors/coordinators responsible for this project"
+    )
+    
     notify_supervisor = models.BooleanField(
         default=False,
         help_text="Notify supervisor/informed users when project status changes"
@@ -341,6 +350,13 @@ class Project(models.Model):
 
     def __str__(self):
         return self.name
+    
+
+    
+    @property
+    def supervisor_list(self):
+        """Return list of supervisor names"""
+        return [sup.get_full_name() or sup.email for sup in self.supervisors.all()]
 
 class RACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -613,7 +629,7 @@ class ProjectReview(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Review for {self.project.name} - {self.status()}"
+        return f"Review for {self.project.name} "
 
 
 class ProjectReviewComment(models.Model):

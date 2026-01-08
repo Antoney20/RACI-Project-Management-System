@@ -12,7 +12,9 @@ router.register(r'projects', views.ProjectViewSet, basename='project')
 router.register(r'tasks', views.TaskViewSet, basename='task')
 router.register(r'milestones', views.MilestoneViewSet, basename='milestone')
 router.register(r'documents', views.ProjectDocumentViewSet, basename='documents')
-
+#admin reviews
+router.register(r'project-reviews', views.ProjectReviewViewSet, basename='project-review')
+router.register(r'review-comments', views.ProjectReviewCommentViewSet, basename='review-comment')
 
 
 urlpatterns = [

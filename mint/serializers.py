@@ -223,6 +223,38 @@ class SprintSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# class ProjectCreateSerializer(serializers.ModelSerializer):
+#     accountable_person_id = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         source='owner',
+#         write_only=True
+#     )
+#     sprint_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Sprint.objects.all(),
+#         source='sprint',
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+
+#     class Meta:
+#         model = Project
+#         fields = [
+#             'id',
+#             'name',
+#             'description',
+#             'accountable_person_id',
+#             'sprint_id',
+#             'priority',
+#             'status',
+#             'start_date',
+#             'end_date',
+#             'progress',
+#             'created_at',
+#         ]
+#         read_only_fields = ['id', 'created_at']
+
+
 class ProjectCreateSerializer(serializers.ModelSerializer):
     accountable_person_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -236,6 +268,13 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    supervisor_ids = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), 
+        source='supervisors',
+        many=True,
+        write_only=True,
+        required=False
+    )
 
     class Meta:
         model = Project
@@ -245,6 +284,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             'description',
             'accountable_person_id',
             'sprint_id',
+            'supervisor_ids',
             'priority',
             'status',
             'start_date',
@@ -253,9 +293,6 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
-
-
-
 
 class RAssignmentSerializer(serializers.ModelSerializer):
     user = UserMinimalSerializer(read_only=True)
@@ -279,7 +316,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'owner', 'owner_name', 'created_by', 'description', 'priority',
+            'id', 'name', 'owner', 'owner_name', 'created_by', 'supervisors', 'description', 'priority',
             'status', 'progress', 'start_date', 'end_date',
             'collaborator_count', 'milestone_count', 'document_count',
             'raci_assignments',

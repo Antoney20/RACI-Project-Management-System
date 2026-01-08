@@ -19,9 +19,9 @@ from core.utils.weekdays import calculate_business_days, get_business_days_in_ra
 
 
 
-from .models import LeaveStatus, Milestones, Project, ProjectDocument, Sprint, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
+from .models import LeaveStatus, Milestones, Project, ProjectDocument, ProjectReview, ProjectReviewComment, Sprint, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
 from .serializers import (
-    ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, RACIAssignmentSerializer, SprintSerializer, TaskListSerializer,
+    ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, ProjectReviewCommentSerializer, ProjectReviewSerializer, RACIAssignmentSerializer, SprintSerializer, TaskListSerializer,
     TaskDetailSerializer, MilestoneSerializer, LeaveRequestSerializer,
     LeaveAllocationSerializer,
     ProjectCommentSerializer, ProjectNoteSerializer, MilestoneCommentSerializer
@@ -448,7 +448,6 @@ class LeaveRequestViewSet(ModelViewSet):
 
 
 
-
 class LeaveAllocationViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveAllocationSerializer
@@ -643,8 +642,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return ProjectListSerializer
 
 
-    # def perform_create(self, serializer):
-    #     serializer.save(owner=self.request.user)
     def perform_create(self, serializer):
         serializer.save()
 
@@ -875,16 +872,56 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='notify_supervisor')
     def notify_supervisor(self, request, pk=None):
-        """Send notification to project supervisor/owner"""
         project = self.get_object()
-        message = request.data.get('message', '')
-        
+        message = request.data.get('message', '').strip()
 
-        return Response({
-            'success': True,
-            'message': 'Supervisor notified successfully'
-        })
+        if not message:
+            return Response(
+                {"detail": "Message is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
+        supervisor = project.supervisor
+
+        if not supervisor:
+            return Response(
+                {"detail": "This project has no assigned supervisor"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            subject = f"Project Update Notification - {project.name}"
+            full_message = (
+                f"Project: {project.name}\n"
+                f"From: {request.user.get_full_name() or request.user.email}\n"
+                f"Message:\n\n{message}\n\n"
+                f"View project: {settings.FRONTEND_URL}/projects/{project.id}"
+            )
+
+            # send_mail(
+            #     subject=subject,
+            #     message=full_message,
+            #     from_email=settings.DEFAULT_FROM_EMAIL,
+            #     recipient_list=[supervisor.email],
+            #     fail_silently=False,
+            # )
+
+            # Optional: create internal notification / activity log
+            # Notification.objects.create(...) or add to activity stream
+
+            logger.info(f"Supervisor {supervisor.email} notified about project {project.id}")
+
+            return Response({
+                "success": True,
+                "message": f"Notification sent to {supervisor.get_full_name() or supervisor.email}"
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to notify supervisor for project {project.id}: {str(e)}")
+            return Response(
+                {"detail": "Failed to send notification"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class MilestoneViewSet(viewsets.ModelViewSet):
     """
@@ -987,6 +1024,241 @@ class RACIAssignmentViewSet(viewsets.ModelViewSet):
         return RACIAssignment.objects.filter(
             Q(project__owner=user) | Q(project__raci_assignments__user=user) | Q(user=user)
         ).distinct().select_related('project', 'user')
+
+
+
+class ProjectReviewViewSet(ModelViewSet):
+    """
+    ViewSet for managing project reviews.
+    
+    Access rules:
+    - Admin: sees all completed projects where notify_supervisor=True
+    - Supervisor: sees projects where they are informed (project team member)
+    - Owner: sees their own project reviews
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectReviewSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'project', 'reviewer', 'is_closed']
+
+    def get_queryset(self):
+        """
+        Filter reviews based on user role:
+        - Admin: all reviews for projects with notify_supervisor=True or status of completed
+        - Supervisor/Informed users: reviews for projects they're assigned to
+        - Regular users: their own project reviews
+        """
+        user = self.request.user
+        
+        # if user.is_admin():
+        #     return ProjectReview.objects.filter(project__notify_supervisor=True)
+        
+                
+        if user.is_admin():
+            return ProjectReview.objects.filter(
+                project__status__iexact="completed"
+            ) | ProjectReview.objects.filter(
+                project__notify_supervisor=True
+            )
+
+        if user.is_supervisor():
+            return ProjectReview.objects.filter(
+                Q(project__notify_supervisor=True) |
+                Q(project__status__iexact="completed"),
+                Q(project__team_members=user) |
+                Q(project__owner=user)
+            ).distinct()        
+                
+        
+        # if user.is_supervisor():
+        #     # Get reviews for projects where user is informed (team member or owner)
+        #     return ProjectReview.objects.filter(
+        #         project__team_members=user
+        #     ) | ProjectReview.objects.filter(project__owner=user)
+        
+        # Regular users see only their own project reviews
+        return ProjectReview.objects.filter(project__owner=user)
+
+    def perform_create(self, serializer):
+        """Auto-assign created_by to current user"""
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def assign_reviewer(self, request, pk=None):
+        """
+        Assign a reviewer to the project review.
+        Only admin/supervisor can assign reviewers.
+        """
+        review = self.get_object()
+        
+        if not (request.user.is_admin() or request.user.is_supervisor()):
+            return Response({"message": "Permission denied"}, status=403)
+        
+        reviewer_id = request.data.get('reviewer_id')
+        if not reviewer_id:
+            return Response({"message": "reviewer_id is required"}, status=400)
+        
+        review.reviewer_id = reviewer_id
+        review.status = ProjectReviewStatus.ON_REVIEW
+        review.save()
+        
+        return Response({
+            "success": True,
+            "message": "Reviewer assigned successfully",
+            "data": ProjectReviewSerializer(review).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """
+        Mark review as successfully reviewed.
+        Only assigned reviewer, admin, or supervisor can approve.
+        """
+        review = self.get_object()
+        
+        is_reviewer = review.reviewer == request.user
+        is_authorized = request.user.is_admin() or request.user.is_supervisor()
+        
+        if not (is_reviewer or is_authorized):
+            return Response({"message": "Permission denied"}, status=403)
+        
+        if review.status == ProjectReviewStatus.SUCCESSFULLY_REVIEWED:
+            return Response({"message": "Already approved"}, status=400)
+        
+        review.status = ProjectReviewStatus.SUCCESSFULLY_REVIEWED
+        review.review_summary = request.data.get('summary', review.review_summary)
+        review.reviewed_at = timezone.now()
+        review.save()
+        
+        return Response({
+            "success": True,
+            "message": "Review approved successfully",
+            "data": ProjectReviewSerializer(review).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def request_changes(self, request, pk=None):
+        """
+        Request changes to the project.
+        Only assigned reviewer, admin, or supervisor can request changes.
+        """
+        review = self.get_object()
+        
+        is_reviewer = review.reviewer == request.user
+        is_authorized = request.user.is_admin() or request.user.is_supervisor()
+        
+        if not (is_reviewer or is_authorized):
+            return Response({"message": "Permission denied"}, status=403)
+        
+        review.status = ProjectReviewStatus.CHANGES_REQUESTED
+        review.review_summary = request.data.get('summary', '')
+        review.save()
+        
+        return Response({
+            "success": True,
+            "message": "Changes requested",
+            "data": ProjectReviewSerializer(review).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def close(self, request, pk=None):
+        """
+        Mark review as closed/completed.
+        Only admin or supervisor can close reviews.
+        """
+        review = self.get_object()
+        
+        if not (request.user.is_admin() or request.user.is_supervisor()):
+            return Response({"message": "Permission denied"}, status=403)
+        
+        if review.is_closed:
+            return Response({"message": "Review already closed"}, status=400)
+        
+        review.is_closed = True
+        review.closed_at = timezone.now()
+        review.save()
+        
+        return Response({
+            "success": True,
+            "message": "Review closed successfully",
+            "data": ProjectReviewSerializer(review).data
+        })
+
+
+class ProjectReviewCommentViewSet(ModelViewSet):
+    """
+    ViewSet for managing comments on project reviews.
+    
+    Users can only comment on reviews they have access to.
+    Comments support threading via parent_comment field.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProjectReviewCommentSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['review', 'user', 'is_resolved', 'parent_comment']
+
+    def get_queryset(self):
+        """Filter comments based on reviews the user can access"""
+        user = self.request.user
+        
+        # Get accessible review IDs based on user permissions
+        if user.is_admin():
+            accessible_reviews = ProjectReview.objects.filter(
+                project__notify_supervisor=True
+            ).values_list('id', flat=True)
+        elif user.is_supervisor():
+            accessible_reviews = ProjectReview.objects.filter(
+                project__team_members=user
+            ).values_list('id', flat=True) | ProjectReview.objects.filter(
+                project__owner=user
+            ).values_list('id', flat=True)
+        else:
+            accessible_reviews = ProjectReview.objects.filter(
+                project__owner=user
+            ).values_list('id', flat=True)
+        
+        return ProjectReviewComment.objects.filter(review_id__in=accessible_reviews)
+
+    def perform_create(self, serializer):
+        """Auto-assign user to current user"""
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, pk=None):
+        """
+        Mark a comment as resolved.
+        Only comment author, reviewer, admin, or supervisor can resolve.
+        """
+        comment = self.get_object()
+        review = comment.review
+        
+        is_author = comment.user == request.user
+        is_reviewer = review.reviewer == request.user
+        is_authorized = request.user.is_admin() or request.user.is_supervisor()
+        
+        if not (is_author or is_reviewer or is_authorized):
+            return Response({"message": "Permission denied"}, status=403)
+        
+        comment.is_resolved = True
+        comment.save()
+        
+        return Response({
+            "success": True,
+            "message": "Comment marked as resolved successfully",
+            "data": ProjectReviewCommentSerializer(comment).data
+        })
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
