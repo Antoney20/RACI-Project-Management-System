@@ -358,6 +358,8 @@ class Project(models.Model):
         """Return list of supervisor names"""
         return [sup.get_full_name() or sup.email for sup in self.supervisors.all()]
 
+
+
 class RACIAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
@@ -790,7 +792,7 @@ class CalendarEvent(models.Model):
         verbose_name = "Calendar Event"
         verbose_name_plural = "Calendar Events"
         ordering = ["start_date"]
-        indexes = [
+        indexes = [  
             models.Index(fields=["start_date", "end_date"]),
             models.Index(fields=["event_type", "is_public"]),
             models.Index(fields=["user", "start_date"]),

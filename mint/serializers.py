@@ -312,11 +312,14 @@ class ProjectListSerializer(serializers.ModelSerializer):
     owner = UserMinimalSerializer(read_only=True)
     created_by = UserMinimalSerializer(read_only=True)
     raci_assignments = RAssignmentSerializer(many=True, read_only=True)
+    # supervisors = UserMinimalSerializer(many=True, read_only=True)
+    supervisor_list = serializers.SerializerMethodField()
+    
   
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'owner', 'owner_name', 'created_by', 'supervisors', 'description', 'priority',
+            'id', 'name', 'owner', 'owner_name', 'created_by', 'supervisors', 'supervisor_list','description', 'priority',
             'status', 'progress', 'start_date', 'end_date',
             'collaborator_count', 'milestone_count', 'document_count',
             'raci_assignments',
@@ -332,6 +335,10 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
     def get_document_count(self, obj):
         return obj.documents.count()
+    
+    def get_supervisor_list(self, obj):
+        """Return list of supervisor names"""
+        return obj.supervisor_list
 
 class MilestoneSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
@@ -422,17 +429,22 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     milestones = MilestoneSerializer(many=True, read_only=True)
     documents = ProjectDocumentSerializer(many=True, read_only=True)
     raci_assignments = RACIAssignmentSerializer(many=True, read_only=True)
+    supervisor_list = serializers.SerializerMethodField()
+    supervisors = UserMinimalSerializer(many=True, read_only=True)
     
     class Meta:
         model = Project
         fields = [
-            'id', 'name',  'description', 'owner', 'owner_name',
-            'status', 'progress',
+            'id', 'name',  'description', 'owner', 'owner_name', 'supervisors', 'supervisor_list', 'priority',
+            'status', 'progress', 'notify_supervisor', 'comment_notify',
             'start_date', 'end_date',  'created_at', 'updated_at', 'milestones', 'documents', 'raci_assignments'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+    def get_supervisor_list(self, obj):
+        """Return list of supervisor names"""
+        return obj.supervisor_list
 
 
 

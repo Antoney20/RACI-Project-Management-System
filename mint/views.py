@@ -869,8 +869,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-
-    @action(detail=True, methods=['post'], url_path='notify_supervisor')
+    @action(detail=True, methods=['post'], url_path='notify-supervisor')
     def notify_supervisor(self, request, pk=None):
         project = self.get_object()
         message = request.data.get('message', '').strip()
@@ -881,47 +880,48 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        supervisor = project.supervisor
+        supervisors = project.supervisors.all()
 
-        if not supervisor:
+        if not supervisors.exists():
             return Response(
-                {"detail": "This project has no assigned supervisor"},
+                {"detail": "This project has no assigned supervisors"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            subject = f"Project Update Notification - {project.name}"
-            full_message = (
-                f"Project: {project.name}\n"
-                f"From: {request.user.get_full_name() or request.user.email}\n"
-                f"Message:\n\n{message}\n\n"
-                f"View project: {settings.FRONTEND_URL}/projects/{project.id}"
-            )
+            sender_name = request.user.get_full_name() or request.user.email
+            recipient_emails = [s.email for s in supervisors if s.email]
 
-            # send_mail(
-            #     subject=subject,
-            #     message=full_message,
-            #     from_email=settings.DEFAULT_FROM_EMAIL,
-            #     recipient_list=[supervisor.email],
-            #     fail_silently=False,
-            # )
+            # 🔔 MARK AS NOTIFIED (PERSIST)
+            project.notify_supervisor = True
+            project.save(update_fields=["notify_supervisor", "updated_at"])
 
-            # Optional: create internal notification / activity log
-            # Notification.objects.create(...) or add to activity stream
-
-            logger.info(f"Supervisor {supervisor.email} notified about project {project.id}")
+            # 🔍 DEBUG OUTPUT
+            print("==== NOTIFY SUPERVISORS DEBUG ====")
+            print("Project:", project.id, project.name)
+            print("Sender:", sender_name)
+            print("Supervisors:", [s.get_full_name() or s.email for s in supervisors])
+            print("Recipient emails:", recipient_emails)
+            print("Message:")
+            print(message)
+            print("=================================")
 
             return Response({
                 "success": True,
-                "message": f"Notification sent to {supervisor.get_full_name() or supervisor.email}"
+                "notified_count": len(recipient_emails),
+                "notify_supervisor": project.notify_supervisor,
+                "supervisors": [
+                    s.get_full_name() or s.email for s in supervisors
+                ],
             })
 
         except Exception as e:
-            logger.error(f"Failed to notify supervisor for project {project.id}: {str(e)}")
+            print("❌ NOTIFY SUPERVISOR ERROR:", str(e))
             return Response(
-                {"detail": "Failed to send notification"},
+                {"detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
 
 class MilestoneViewSet(viewsets.ModelViewSet):
     """
