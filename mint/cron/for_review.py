@@ -23,7 +23,7 @@ def move_completed_projects_to_review():
         for project in completed_projects:
             try:
                 with transaction.atomic():
-                    # Create a new ProjectReview for this completed project
+                    # Create a new ProjectReview for this 
                     ProjectReview.objects.create(
                         project=project,
                         status=ProjectReviewStatus.PENDING,
@@ -38,7 +38,7 @@ def move_completed_projects_to_review():
                 logger.error(f"Failed to create review for project {project.id}: {str(e)}")
                 continue
         
-        logger.info(f"Successfully moved {created_count} completed projects to review")
+
         
     except Exception as e:
         logger.error(f"Error in move_completed_projects_to_review cronjob: {str(e)}")

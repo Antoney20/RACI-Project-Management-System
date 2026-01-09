@@ -267,12 +267,10 @@ class UserSerializer(serializers.ModelSerializer):
         roles = list(obj.groups.values_list('name', flat=True))
         return roles if roles else ['staff']
 
-    
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
-    role = serializers.SerializerMethodField()
     is_admin = serializers.SerializerMethodField()
     is_supervisor = serializers.SerializerMethodField()
     
@@ -304,9 +302,6 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'id', 'is_active', 'status', 'is_staff', 'is_email_verified',
             'last_login_at', 'failed_login_attempts', 'created_at', 'updated_at'
         ]
-    
-    def get_role(self, obj):
-        return list(obj.groups.values_list('name', flat=True)) or ['staff']
     
     def get_is_admin(self, obj):
         return obj.is_admin()

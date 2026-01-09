@@ -16,9 +16,9 @@ from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q, Count
 
 from core.utils.weekdays import calculate_business_days, get_business_days_in_range
-
-
-
+from mint.services.reviews import move_project_to_review
+ 
+  
 from .models import LeaveStatus, Milestones, Project, ProjectDocument, ProjectReview, ProjectReviewComment, Sprint, Task,  LeaveRequest, LeaveAllocation, RACIAssignment, RACIRole
 from .serializers import (
     ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, ProjectReviewCommentSerializer, ProjectReviewSerializer, RACIAssignmentSerializer, SprintSerializer, TaskListSerializer,
@@ -833,6 +833,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project.status = 'completed'
         project.progress = 100.0
         project.save()
+        move_project_to_review(project)
+
         
         return Response({
             'success': True,
@@ -895,6 +897,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             # 🔔 MARK AS NOTIFIED (PERSIST)
             project.notify_supervisor = True
             project.save(update_fields=["notify_supervisor", "updated_at"])
+            move_project_to_review(project)
 
             # 🔍 DEBUG OUTPUT
             print("==== NOTIFY SUPERVISORS DEBUG ====")
@@ -1049,10 +1052,7 @@ class ProjectReviewViewSet(ModelViewSet):
         - Regular users: their own project reviews
         """
         user = self.request.user
-        
-        # if user.is_admin():
-        #     return ProjectReview.objects.filter(project__notify_supervisor=True)
-        
+
                 
         if user.is_admin():
             return ProjectReview.objects.filter(
@@ -1070,13 +1070,6 @@ class ProjectReviewViewSet(ModelViewSet):
             ).distinct()        
                 
         
-        # if user.is_supervisor():
-        #     # Get reviews for projects where user is informed (team member or owner)
-        #     return ProjectReview.objects.filter(
-        #         project__team_members=user
-        #     ) | ProjectReview.objects.filter(project__owner=user)
-        
-        # Regular users see only their own project reviews
         return ProjectReview.objects.filter(project__owner=user)
 
     def perform_create(self, serializer):
