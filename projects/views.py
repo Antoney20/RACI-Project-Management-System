@@ -1,362 +1,301 @@
-# from rest_framework import status
-# from rest_framework.viewsets import ModelViewSet
-# from rest_framework.decorators import action
-# from rest_framework.response import Response
-# from rest_framework.permissions import IsAuthenticated
-# from rest_framework.exceptions import PermissionDenied, ValidationError
-# from django_filters.rest_framework import DjangoFilterBackend
-# from django.db.models import Q
-# from django.utils import timezone
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 
-# from .models import Sprint
-# # Project, ProjectMilestone, ProjectMember, ProjectMaterial, ProjectComment
-# from .serializers import (
-#     SprintSerializer,
-#     # ProjectDetailSerializer,
-#     # ProjectMilestoneSerializer, ProjectMemberSerializer,
-#     # ProjectMaterialSerializer, ProjectCommentSerializer
-# )
+from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument
+from .serializers import (
+    ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
+    ActivityCreateSerializer, ActivityListSerializer, ActivityDetailSerializer,
+    MilestoneSerializer, ActivityCommentSerializer, MilestoneCommentSerializer,
+    ActivityDocumentSerializer
+)
 
 
-# class SprintViewSet(ModelViewSet):
-#     """
-#     Sprint/Timeline management
-    
-#     Access:
-#     - Admin/Office Admin: Full access
-#     - Supervisor: View all, create/update sprints in their department
-#     - Staff: View only
-#     """
-#     permission_classes = [IsAuthenticated]
-#     serializer_class = SprintSerializer
+class ProjectViewSet(viewsets.ModelViewSet):
+    """
+    Project CRUD operations with role-based access.
+    - Created by user can view/edit their projects
+    - Staff can see all projects
+    """
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'priority']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'start_date']
+    ordering = ['-created_at']
 
-    
-#     def get_queryset(self):
-#         user = self.request.user
+    def get_queryset(self):
+        """Filter projects based on user permissions"""
+        user = self.request.user
         
-#         if user.is_admin() or user.is_office_admin():
-#             data = Sprint.objects.all()
+        if user.is_staff:
+            return Project.objects.all().select_related('created_by', 'sprint')
+        
+        # Users see projects they created
+        return Project.objects.filter(
+            created_by=user
+        ).select_related('created_by', 'sprint')
 
-#             return data
-        
-#         if user.is_supervisor():
-#             return Sprint.objects.all()
-        
-#         # Staff can view all sprints
-#         return Sprint.objects.all()
-    
-#     def perform_create(self, serializer):
-#         user = self.request.user
-#         if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
-#             raise PermissionDenied("Only admins and supervisors can create sprints.")
-#         serializer.save()
-    
-#     def perform_update(self, serializer):
-#         user = self.request.user
-#         if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
-#             raise PermissionDenied("Only admins and supervisors can update sprints.")
-#         serializer.save()
-    
-#     def perform_destroy(self, instance):
-#         if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
-#             raise PermissionDenied("Only admins can delete sprints.")
-#         instance.delete()
-    
-#     @action(detail=False, methods=['get'])
-#     def active(self, request):
-#         """Get all active sprints"""
-#         sprints = self.get_queryset()
-#         serializer = self.get_serializer(sprints, many=True)
-#         return Response({'success': True, 'data': serializer.data})
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'create':
+            return ProjectCreateSerializer
+        if self.action == 'retrieve':
+            return ProjectDetailSerializer
+        return ProjectListSerializer
 
+    def perform_create(self, serializer):
+        """Set the creator when creating a project"""
+        serializer.save(created_by=self.request.user)
 
-# # class ProjectViewSet(ModelViewSet):
-# #     """
-# #     Project management with RACI-based visibility
-    
-# #     Visibility Rules:
-# #     - Admin: All projects
-# #     - Office Admin: All projects in department
-# #     - Supervisor: Projects where assigned (any RACI role)
-# #     - Staff: Projects where assigned
-# #     - External: Projects where Consulted/Informed
-# #     """
-# #     permission_classes = [IsAuthenticated]
-# #     # filter_backends = [DjangoFilterBackend]
-# #     # filterset_fields = ['status', 'priority', 'sprint', 'accountable_person']
-    
-# #     def get_serializer_class(self):
-# #         if self.action == 'list':
-# #             return ProjectListSerializer
-# #         return ProjectDetailSerializer
-    
-# #     def get_queryset(self):
-# #         user = self.request.user
+    def destroy(self, request, *args, **kwargs):
+        """Only staff can delete projects"""
+        if not request.user.is_staff:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only administrators can delete projects."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
         
-# #         # Admin sees everything
-# #         if user.is_admin():
-# #             return Project.objects.select_related('accountable_person', 'sprint', 'created_by')
+        project = self.get_object()
+        project_name = project.name
+        self.perform_destroy(project)
         
-# #         # Office admin sees department projects
-# #         if user.is_office_admin():
-# #             return Project.objects.filter(
-# #                 Q(accountable_person__department=user.department) |
-# #                 Q(members__user=user)
-# #             ).distinct().select_related('accountable_person', 'sprint', 'created_by')
-        
-# #         # Supervisor/Staff/External see assigned projects
-# #         return Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).distinct().select_related('accountable_person', 'sprint', 'created_by')
-    
-# #     def perform_create(self, serializer):
-# #         user = self.request.user
-# #         if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
-# #             raise PermissionDenied("Only admins and supervisors can create projects.")
-# #         serializer.save()
-    
-# #     def perform_update(self, serializer):
-# #         user = self.request.user
-# #         project = self.get_object()
-        
-# #         # Only admins, office admins, or accountable person can update
-# #         if not (user.is_admin() or user.is_office_admin() or project.accountable_person == user):
-# #             raise PermissionDenied("Only project accountable person or admins can update this project.")
-        
-# #         serializer.save()
-    
-# #     def perform_destroy(self, instance):
-# #         user = self.request.user
-# #         if not (user.is_admin() or user.is_office_admin()):
-# #             raise PermissionDenied("Only admins can delete projects.")
-# #         instance.delete()
-    
-# #     @action(detail=False, methods=['get'])
-# #     def my_projects(self, request):
-# #         """Get projects where user is involved"""
-# #         user = request.user
-# #         projects = Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).distinct()
-# #         serializer = self.get_serializer(projects, many=True)
-# #         return Response({'success': True, 'data': serializer.data})
-    
-# #     @action(detail=False, methods=['get'])
-# #     def overdue(self, request):
-# #         """Get overdue projects"""
-# #         today = timezone.now().date()
-# #         projects = self.get_queryset().filter(
-# #             end_date__lt=today,
-# #             status__in=['not_started', 'in_progress', 'on_hold']
-# #         )
-# #         serializer = self.get_serializer(projects, many=True)
-# #         return Response({'success': True, 'data': serializer.data})
-    
-# #     @action(detail=True, methods=['post'])
-# #     def update_progress(self, request, pk=None):
-# #         """Update project progress percentage"""
-# #         project = self.get_object()
-# #         user = request.user
-        
-# #         if not (user.is_admin() or user.is_office_admin() or project.accountable_person == user):
-# #             raise PermissionDenied("Only accountable person or admins can update progress.")
-        
-# #         progress = request.data.get('progress_percentage')
-# #         if progress is None or not (0 <= int(progress) <= 100):
-# #             raise ValidationError("Progress must be between 0 and 100.")
-        
-# #         project.progress_percentage = progress
-# #         project.save()
-        
-# #         serializer = self.get_serializer(project)
-# #         return Response({
-# #             'success': True,
-# #             'message': 'Progress updated successfully.',
-# #             'data': serializer.data
-# #         })
+        return Response(
+            {
+                "success": True,
+                "message": f'Project "{project_name}" deleted successfully.'
+            },
+            status=status.HTTP_200_OK
+        )
 
 
-# # class ProjectMilestoneViewSet(ModelViewSet):
-# #     """
-# #     Milestone/subtask management
-    
-# #     Access: Same as parent project
-# #     """
-# #     permission_classes = [IsAuthenticated]
-# #     serializer_class = ProjectMilestoneSerializer
+class ActivityViewSet(viewsets.ModelViewSet):
+    """
+    Activity CRUD operations with RACI role-based access.
+    - Users with any RACI role (R/A/C/I) can view activities
+    - Responsible/Accountable can edit
+    - Staff can see all
+    """
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'priority', 'project', 'is_complete']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'deadline']
+    ordering = ['-created_at']
 
-# #     def get_queryset(self):
-# #         user = self.request.user
-# #         print("***** ", user)
+    def get_queryset(self):
+        """Filter activities based on user RACI roles"""
+        user = self.request.user
         
-# #         if user.is_admin():
-# #             return ProjectMilestone.objects.all()
+        if user.is_staff:
+            return Activity.objects.all().select_related(
+                'project', 'responsible', 'accountable'
+            ).prefetch_related('consulted', 'informed')
         
-# #         # Filter by accessible projects
-# #         accessible_projects = Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).values_list('id', flat=True)
-        
-# #         return ProjectMilestone.objects.filter(
-# #             project_id__in=accessible_projects
-# #         ).select_related('project', 'assigned_to')
-    
-# #     def perform_create(self, serializer):
-# #         project = serializer.validated_data['project']
-# #         print("project", project)
-# #         user = self.request.user
-        
-# #         if not (user.is_admin() or user.is_office_admin() or project.accountable_person == user):
-# #             raise PermissionDenied("Only project accountable person or admins can add milestones.")
-        
-# #         serializer.save()
-    
-# #     def perform_update(self, serializer):
-# #         milestone = self.get_object()
-# #         user = self.request.user
-        
-# #         if not (user.is_admin() or user.is_office_admin() or 
-# #                 milestone.project.accountable_person == user or 
-# #                 milestone.assigned_to == user):
-# #             raise PermissionDenied("Only assigned person or project owner can update this milestone.")
-        
-# #         serializer.save()
-    
-# #     @action(detail=True, methods=['post'])
-# #     def mark_complete(self, request, pk=None):
-# #         """Mark milestone as completed"""
-# #         milestone = self.get_object()
-# #         milestone.status = 'completed'
-# #         milestone.completed_at = timezone.now()
-# #         milestone.save()
-        
-# #         serializer = self.get_serializer(milestone)
-# #         return Response({
-# #             'success': True,
-# #             'message': 'Milestone marked as complete.',
-# #             'data': serializer.data
-# #         })
+        # Users see activities where they have any RACI role
+        return Activity.objects.filter(
+            Q(responsible=user) | 
+            Q(accountable=user) | 
+            Q(consulted=user) | 
+            Q(informed=user) 
+        ).distinct().select_related(
+            'project', 'responsible', 'accountable'
+        ).prefetch_related('consulted', 'informed')
 
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'create':
+            return ActivityCreateSerializer
+        if self.action == 'retrieve':
+            return ActivityDetailSerializer
+        return ActivityListSerializer
 
-# # class ProjectMemberViewSet(ModelViewSet):
-# #     """
-# #     Project team member management
-    
-# #     Access: Project accountable person and admins
-# #     """
-# #     permission_classes = [IsAuthenticated]
-# #     serializer_class = ProjectMemberSerializer
-# #     # filter_backends = [DjangoFilterBackend]
-# #     # filterset_fields = ['project', 'user', 'raci_role']
-    
-# #     def get_queryset(self):
-# #         user = self.request.user
+    @action(detail=True, methods=['post'], url_path='mark-complete')
+    def mark_complete(self, request, pk=None):
+        """Mark activity as completed"""
+        activity = self.get_object()
+        activity.status = 'completed'
+        activity.save()
         
-# #         if user.is_admin():
-# #             return ProjectMember.objects.select_related('project', 'user', 'assigned_by')
-        
-# #         accessible_projects = Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).values_list('id', flat=True)
-        
-# #         return ProjectMember.objects.filter(
-# #             project_id__in=accessible_projects
-# #         ).select_related('project', 'user', 'assigned_by')
-    
-# #     def perform_create(self, serializer):
-# #         project = serializer.validated_data['project']
-# #         user = self.request.user
-        
-# #         if not (user.is_admin() or user.is_office_admin() or project.accountable_person == user):
-# #             raise PermissionDenied("Only project accountable person or admins can add members.")
-        
-# #         serializer.save()
-    
-# #     def perform_destroy(self, instance):
-# #         user = self.request.user
-# #         if not (user.is_admin() or user.is_office_admin() or instance.project.accountable_person == user):
-# #             raise PermissionDenied("Only project accountable person or admins can remove members.")
-# #         instance.delete()
+        return Response({
+            'success': True,
+            'message': 'Activity marked as complete',
+            'is_complete': activity.is_complete
+        })
 
+    @action(detail=True, methods=['get', 'post'])
+    def comments(self, request, pk=None):
+        """Get all comments or create a new comment for an activity"""
+        activity = self.get_object()
+        
+        if request.method == 'GET':
+            comments = activity.comments.select_related('user').order_by('-created_at')
+            serializer = ActivityCommentSerializer(comments, many=True)
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            serializer = ActivityCommentSerializer(
+                data={'activity': activity.id, 'content': request.data.get('content')}
+            )
+            if serializer.is_valid():
+                serializer.save(user=request.user, activity=activity)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# # class ProjectMaterialViewSet(ModelViewSet):
-# #     """Project materials (files/links) management"""
-# #     permission_classes = [IsAuthenticated]
-# #     serializer_class = ProjectMaterialSerializer
-# #     # filter_backends = [DjangoFilterBackend]
-# #     # filterset_fields = ['project', 'material_type']
-    
-# #     def get_queryset(self):
-# #         user = self.request.user
+    @action(detail=True, methods=['get', 'post'])
+    def milestones(self, request, pk=None):
+        """Get all milestones or create a new milestone for an activity"""
+        activity = self.get_object()
         
-# #         if user.is_admin():
-# #             return ProjectMaterial.objects.select_related('project', 'uploaded_by')
+        if request.method == 'GET':
+            milestones = activity.milestones.all().order_by('due_date')
+            serializer = MilestoneSerializer(milestones, many=True)
+            return Response(serializer.data)
         
-# #         accessible_projects = Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).values_list('id', flat=True)
+        elif request.method == 'POST':
+            serializer = MilestoneSerializer(
+                data={'activity': activity.id, **request.data}
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['patch'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        """Update activity status and priority"""
+        activity = self.get_object()
         
-# #         return ProjectMaterial.objects.filter(
-# #             project_id__in=accessible_projects
-# #         ).select_related('project', 'uploaded_by')
-    
-# #     def perform_create(self, serializer):
-# #         project = serializer.validated_data['project']
-# #         user = self.request.user
+        new_status = request.data.get('status')
+        new_priority = request.data.get('priority')
         
-# #         if not (user.is_admin() or user.is_office_admin() or 
-# #                 project.accountable_person == user or
-# #                 project.members.filter(user=user).exists()):
-# #             raise PermissionDenied("Only project members can upload materials.")
+        if new_status:
+            activity.status = new_status
+        if new_priority:
+            activity.priority = new_priority
         
-# #         serializer.save()
+        activity.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Activity updated successfully',
+            'status': activity.status,
+            'priority': activity.priority,
+            'is_complete': activity.is_complete
+        })
 
 
-# # class ProjectCommentViewSet(ModelViewSet):
-# #     """Project comments with threading"""
-# #     permission_classes = [IsAuthenticated]
-# #     serializer_class = ProjectCommentSerializer
-# #     # filter_backends = [DjangoFilterBackend]
-# #     # filterset_fields = ['project', 'parent']
-    
-# #     def get_queryset(self):
-# #         user = self.request.user
+class MilestoneViewSet(viewsets.ModelViewSet):
+    """
+    Milestone management for activities.
+    - Users with access to parent activity can manage milestones
+    """
+    serializer_class = MilestoneSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['status', 'priority', 'is_completed', 'activity']
+    ordering_fields = ['due_date', 'created_at']
+    ordering = ['due_date']
+
+    def get_queryset(self):
+        """Filter milestones based on activity access"""
+        user = self.request.user
         
-# #         if user.is_admin():
-# #             return ProjectComment.objects.select_related('project', 'user', 'parent')
+        if user.is_staff:
+            return Milestone.objects.all().select_related('activity', 'assigned_to')
         
-# #         accessible_projects = Project.objects.filter(
-# #             Q(accountable_person=user) |
-# #             Q(members__user=user)
-# #         ).values_list('id', flat=True)
+        # Users see milestones for activities they have access to
+        return Milestone.objects.filter(
+            Q(activity__responsible=user) | 
+            Q(activity__accountable=user) | 
+            Q(activity__consulted=user) | 
+            Q(activity__informed=user) |
+            Q(activity__project__created_by=user) |
+            Q(assigned_to=user)
+        ).distinct().select_related('activity', 'assigned_to')
+
+    @action(detail=True, methods=['post'], url_path='mark-complete')
+    def mark_complete(self, request, pk=None):
+        """Mark milestone as completed"""
+        milestone = self.get_object()
+        milestone.status = 'completed'
+        milestone.save()
         
-# #         return ProjectComment.objects.filter(
-# #             project_id__in=accessible_projects
-# #         ).select_related('project', 'user', 'parent')
-    
-# #     def perform_create(self, serializer):
-# #         project = serializer.validated_data['project']
-# #         user = self.request.user
+        return Response({
+            'success': True,
+            'message': 'Milestone marked as complete',
+            'is_completed': milestone.is_completed,
+            'completed_at': milestone.completed_at
+        })
+
+    @action(detail=True, methods=['get', 'post'])
+    def comments(self, request, pk=None):
+        """Get all comments or create a new comment for a milestone"""
+        milestone = self.get_object()
         
-# #         if not (user.is_admin() or user.is_office_admin() or 
-# #                 project.accountable_person == user or
-# #                 project.members.filter(user=user).exists()):
-# #             raise PermissionDenied("Only project members can comment.")
+        if request.method == 'GET':
+            comments = milestone.comments.select_related('user').order_by('-created_at')
+            serializer = MilestoneCommentSerializer(comments, many=True)
+            return Response(serializer.data)
         
-# #         serializer.save()
-    
-# #     def perform_update(self, serializer):
-# #         comment = self.get_object()
-# #         if comment.user != self.request.user and not self.request.user.is_admin():
-# #             raise PermissionDenied("You can only edit your own comments.")
-# #         serializer.save()
-    
-# #     def perform_destroy(self, instance):
-# #         if instance.user != self.request.user and not self.request.user.is_admin():
-# #             raise PermissionDenied("You can only delete your own comments.")
-# #         instance.delete()
+        elif request.method == 'POST':
+            serializer = MilestoneCommentSerializer(
+                data={'milestone': milestone.id, 'content': request.data.get('content')}
+            )
+            if serializer.is_valid():
+                serializer.save(user=request.user, milestone=milestone)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ActivityDocumentViewSet(viewsets.ModelViewSet):
+    """
+    Document management for activities.
+    - Users with activity access can view/upload documents
+    """
+    serializer_class = ActivityDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['activity', 'document_type']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        """Filter documents based on activity access"""
+        user = self.request.user
+        
+        if user.is_staff:
+            return ActivityDocument.objects.all().select_related(
+                'activity', 'uploaded_by'
+            )
+        
+        # Users see documents for activities they have access to
+        return ActivityDocument.objects.filter(
+            Q(activity__responsible=user) | 
+            Q(activity__accountable=user) | 
+            Q(activity__consulted=user) | 
+            Q(activity__informed=user)
+        ).distinct().select_related('activity', 'uploaded_by')
+
+    def perform_create(self, serializer):
+        """Set uploader when creating document"""
+        serializer.save(uploaded_by=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def by_activity(self, request):
+        """Get all documents for a specific activity"""
+        activity_id = request.query_params.get('activity_id')
+        if not activity_id:
+            return Response(
+                {'error': 'activity_id parameter required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        docs = self.get_queryset().filter(activity_id=activity_id)
+        serializer = self.get_serializer(docs, many=True)
+        return Response(serializer.data)

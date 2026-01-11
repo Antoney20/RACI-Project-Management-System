@@ -1,208 +1,209 @@
-# from rest_framework import serializers
-# from django.contrib.auth import get_user_model
-# from django.core.exceptions import ValidationError
-# from .models import (
-#     Sprint,
-#     # Project, ProjectMilestone, ProjectMember,
-#     # ProjectMaterial, ProjectComment, RACIRole
-# )
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument
+from mint.models import Sprint
 
-# User = get_user_model()
+User = get_user_model()
 
 
-# class UserMinimalSerializer(serializers.ModelSerializer):
-#     """Lightweight user info for nested relations"""
-#     full_name = serializers.CharField(read_only=True)
+class UserMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight user info for nested relations"""
+    full_name = serializers.CharField(read_only=True)
     
-#     class Meta:
-#         model = User
-#         fields = ['id', 'username', 'email', 'full_name', 'role', 'department', 'profile_image']
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'full_name', 'role', 'department', 'profile_image']
 
 
-# class SprintSerializer(serializers.ModelSerializer):
-#     """Sprint/Timeline serializer"""
-#     created_by = UserMinimalSerializer(read_only=True)
-#     project_count = serializers.SerializerMethodField()
-    
-#     class Meta:
-#         model = Sprint
-#         fields = '__all__'
-#         read_only_fields = ['created_by', 'created_at', 'updated_at']
-    
-#     def get_project_count(self, obj):
-#         return obj.projects.count()
-    
-#     def create(self, validated_data):
-#         validated_data['created_by'] = self.context['request'].user
-#         return super().create(validated_data)
+# PROJECT SERIALIZERS
+class ProjectCreateSerializer(serializers.ModelSerializer):
+    sprint_id = serializers.PrimaryKeyRelatedField(
+        queryset=Sprint.objects.all(),
+        source='sprint',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+
+    class Meta:
+        model = Project
+        fields = [
+            'id', 'name', 'description', 'sprint_id', 'priority', 'status',
+            'deliverables',
+            'start_date', 'end_date', 'project_link', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
 
 
+class ProjectListSerializer(serializers.ModelSerializer):
+    created_by = UserMinimalSerializer(read_only=True)
+    activity_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Project
+        fields = [
+            'id', 'name', 'description', 'sprint', 'status', 'priority', 'deliverables',
+            'start_date', 'end_date', 'project_link', 'created_by', 
+            'activity_count', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def get_activity_count(self, obj):
+        return obj.activities.count()
 
 
-# # class ProjectMilestoneSerializer(serializers.ModelSerializer):
-# #     assigned_to = UserMinimalSerializer(read_only=True)
-# #     assigned_to_id = serializers.PrimaryKeyRelatedField(
-# #         queryset=User.objects.all(),
-# #         source='assigned_to',
-# #         write_only=True,
-# #         required=False
-# #     )
+class ProjectDetailSerializer(serializers.ModelSerializer):
+    created_by = UserMinimalSerializer(read_only=True)
+    
+    class Meta:
+        model = Project
+        fields = [
+            'id', 'name', 'description', 'sprint', 'status', 'priority', 'deliverables',
+            'start_date', 'end_date', 'duration_days', 'project_link',
+            'created_by', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'duration_days', 'created_at', 'updated_at']
 
 
-# #     class Meta:
-# #         model = ProjectMilestone
-# #         fields = '__all__'
-# #         read_only_fields = ['completed_at', 'created_at', 'updated_at']
+# ACTIVITY SERIALIZERS
+class ActivityCreateSerializer(serializers.ModelSerializer):
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        source='project',
+        write_only=True
+    )
+    responsible_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='responsible',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+    accountable_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='accountable',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+    consulted_ids = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='consulted',
+        many=True,
+        write_only=True,
+        required=False
+    )
+    informed_ids = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='informed',
+        many=True,
+        write_only=True,
+        required=False
+    )
+
+    class Meta:
+        model = Activity
+        fields = [
+            'id', 'project_id', 'name', 'description', 'responsible_id',
+            'accountable_id', 'consulted_ids', 'informed_ids', 'status',
+            'priority', 'deadline', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
 
 
-# # class ProjectMemberSerializer(serializers.ModelSerializer):
-# #     """Project team member with RACI role"""
-# #     user = UserMinimalSerializer(read_only=True)
-# #     user_id = serializers.PrimaryKeyRelatedField(
-# #         queryset=User.objects.all(),
-# #         source='user',
-# #         write_only=True
-# #     )
-# #     assigned_by = UserMinimalSerializer(read_only=True)
+class ActivityListSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    responsible = UserMinimalSerializer(read_only=True)
+    accountable = UserMinimalSerializer(read_only=True)
+    milestone_count = serializers.SerializerMethodField()
     
-# #     class Meta:
-# #         model = ProjectMember
-# #         fields = '__all__'
-# #         read_only_fields = ['assigned_by', 'assigned_at']
+    class Meta:
+        model = Activity
+        fields = [
+            'id', 'project', 'project_name', 'name', 'responsible', 'accountable',
+            'status', 'priority', 'is_complete', 'deadline', 'milestone_count', 'created_at'
+        ]
+        read_only_fields = ['id', 'is_complete', 'created_at']
     
-# #     def validate(self, attrs):
-# #         """Prevent Accountable role via members (use project.accountable_person)"""
-# #         if attrs.get('raci_role') == RACIRole.ACCOUNTABLE:
-# #             raise serializers.ValidationError(
-# #                 "Use project.accountable_person to set Accountable role"
-# #             )
-        
-# #         user = attrs.get('user')
-# #         if user and user.is_blocked():
-# #             raise serializers.ValidationError(f"Cannot assign blocked user {user.username}")
-        
-# #         return attrs
-    
-# #     def create(self, validated_data):
-# #         validated_data['assigned_by'] = self.context['request'].user
-# #         return super().create(validated_data)
+    def get_milestone_count(self, obj):
+        return obj.milestones.count()
 
 
-# # class ProjectMaterialSerializer(serializers.ModelSerializer):
-# #     """Project files and links"""
-# #     uploaded_by = UserMinimalSerializer(read_only=True)
+class ActivityDetailSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    responsible = UserMinimalSerializer(read_only=True)
+    accountable = UserMinimalSerializer(read_only=True)
+    consulted = UserMinimalSerializer(many=True, read_only=True)
+    informed = UserMinimalSerializer(many=True, read_only=True)
     
-# #     class Meta:
-# #         model = ProjectMaterial
-# #         fields = '__all__'
-# #         read_only_fields = ['uploaded_by', 'uploaded_at']
-    
-# #     def create(self, validated_data):
-# #         validated_data['uploaded_by'] = self.context['request'].user
-# #         return super().create(validated_data)
+    class Meta:
+        model = Activity
+        fields = [
+            'id', 'project', 'project_name', 'name', 'description',
+            'responsible', 'accountable', 'consulted', 'informed',
+            'status', 'priority', 'is_complete', 'deadline',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'is_complete', 'created_at', 'updated_at']
 
 
-# # class ProjectCommentSerializer(serializers.ModelSerializer):
-# #     """Project comments with threading support"""
-# #     user = UserMinimalSerializer(read_only=True)
-# #     replies = serializers.SerializerMethodField()
-# #     reply_count = serializers.SerializerMethodField()
+# MILESTONE SERIALIZERS
+class MilestoneSerializer(serializers.ModelSerializer):
+    activity_name = serializers.CharField(source='activity.name', read_only=True)
+    assigned_to = UserMinimalSerializer(read_only=True)
+    assigned_to_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='assigned_to',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     
-# #     class Meta:
-# #         model = ProjectComment
-# #         fields = '__all__'
-# #         read_only_fields = ['user', 'created_at', 'updated_at']
-    
-# #     def get_replies(self, obj):
-# #         """Get direct replies (non-recursive for performance)"""
-# #         if obj.parent is None:
-# #             replies = obj.replies.all()[:5]  # Limit nested replies
-# #             return ProjectCommentSerializer(replies, many=True, context=self.context).data
-# #         return []
-    
-# #     def get_reply_count(self, obj):
-# #         return obj.replies.count()
-    
-# #     def create(self, validated_data):
-# #         validated_data['user'] = self.context['request'].user
-# #         return super().create(validated_data)
+    class Meta:
+        model = Milestone
+        fields = [
+            'id', 'activity', 'activity_name', 'title', 'description',
+            'assigned_to', 'assigned_to_id', 'status', 'priority',
+            'due_date', 'is_completed', 'completed_at', 'created_at'
+        ]
+        read_only_fields = ['id', 'is_completed', 'completed_at', 'created_at']
 
 
-# # class ProjectListSerializer(serializers.ModelSerializer):
-# #     """Lightweight project list view"""
-# #     accountable_person = UserMinimalSerializer(read_only=True)
-# #     sprint = serializers.StringRelatedField()
-# #     milestone_count = serializers.SerializerMethodField()
-# #     member_count = serializers.SerializerMethodField()
-# #     is_overdue = serializers.BooleanField(read_only=True)
-# #     days_remaining = serializers.IntegerField(read_only=True)
-# #     user_raci_role = serializers.SerializerMethodField() 
+# COMMENT SERIALIZERS
+class ActivityCommentSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
     
-# #     class Meta:
-# #         model = Project
-# #         fields = [
-# #             'id', 'name', 'status', 'priority', 'progress_percentage',
-# #             'start_date', 'end_date', 'duration_days', 'sprint', 'description', 'expected_output',
-# #             'accountable_person', 'milestone_count', 'member_count',
-# #             'is_overdue', 'days_remaining', 'user_raci_role', 'created_at'
-# #         ]
-    
-# #     def get_milestone_count(self, obj):
-# #         return obj.milestones.count()
-    
-# #     def get_member_count(self, obj):
-# #         return obj.members.count()
-    
-# #     def get_user_raci_role(self, obj):
-# #         """Get current user's RACI role in this project"""
-# #         request = self.context.get('request')
-# #         if not request or not request.user.is_authenticated:
-# #             return None
-        
-# #         user = request.user
-        
-# #         # Check if user is accountable person
-# #         if obj.accountable_person == user:
-# #             return 'A'
-        
-# #         # Check if user is a member with a role
-# #         member = obj.members.filter(user=user).first()
-# #         if member:
-# #             return member.raci_role
-        
-# #         return None
+    class Meta:
+        model = ActivityComment
+        fields = ['id', 'activity', 'user', 'content', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
 
-# # class ProjectDetailSerializer(serializers.ModelSerializer):
-# #     """Full project details with related data"""
-# #     accountable_person = UserMinimalSerializer(read_only=True)
-# #     accountable_person_id = serializers.PrimaryKeyRelatedField(
-# #         queryset=User.objects.all(),
-# #         source='accountable_person',
-# #         write_only=True
-# #     )
-# #     sprint = SprintSerializer(read_only=True)
-# #     sprint_id = serializers.PrimaryKeyRelatedField(
-# #         queryset=Sprint.objects.all(),
-# #         source='sprint',
-# #         write_only=True,
-# #         required=False
-# #     )
-# #     created_by = UserMinimalSerializer(read_only=True)
+
+class MilestoneCommentSerializer(serializers.ModelSerializer):
+    user = UserMinimalSerializer(read_only=True)
     
-# #     milestones = ProjectMilestoneSerializer(many=True, read_only=True)
-# #     members = ProjectMemberSerializer(many=True, read_only=True)
-# #     materials = ProjectMaterialSerializer(many=True, read_only=True)
-# #     comments = ProjectCommentSerializer(many=True, read_only=True)
+    class Meta:
+        model = MilestoneComment
+        fields = ['id', 'milestone', 'user', 'content', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+
+# DOCUMENT SERIALIZERS
+class ActivityDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by = UserMinimalSerializer(read_only=True)
+    activity_name = serializers.CharField(source='activity.name', read_only=True)
+    file_url = serializers.SerializerMethodField()
     
-# #     is_overdue = serializers.BooleanField(read_only=True)
-# #     days_remaining = serializers.IntegerField(read_only=True)
+    class Meta:
+        model = ActivityDocument
+        fields = [
+            'id', 'activity', 'activity_name', 'title', 'description',
+            'document_type', 'file', 'file_url', 'file_size', 'mime_type',
+            'external_url', 'uploaded_by', 'created_at'
+        ]
+        read_only_fields = ['id', 'uploaded_by', 'created_at']
     
-    
-# #     class Meta:
-# #         model = Project
-# #         fields = '__all__'
-# #         read_only_fields = ['duration_days', 'created_by', 'created_at', 'updated_at']
-    
-# #     def create(self, validated_data):
-# #         validated_data['created_by'] = self.context['request'].user
-# #         return super().create(validated_data)
+    def get_file_url(self, obj):
+        if obj.file:
+            return obj.file.url
+        return None

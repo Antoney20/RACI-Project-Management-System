@@ -20,7 +20,8 @@ from django.utils import timezone
 
 from django.db.models import Q, Count, Sum
 
-from mint.models import LeaveAllocation, LeaveRequest, MilestoneComment, Project, ProjectComment 
+from mint.models import LeaveAllocation, LeaveRequest
+# MilestoneComment, Project, ProjectComment 
 
 
 from .models import CustomUser, UserStatus
@@ -664,262 +665,262 @@ def user_list(request):
 
 
 
-class DashboardView(APIView):
-    """Unified dashboard - shows different data based on user role"""
-    permission_classes = [IsAuthenticated]
+# class DashboardView(APIView):
+#     """Unified dashboard - shows different data based on user role"""
+#     permission_classes = [IsAuthenticated]
     
-    def get(self, request):
-        user = request.user
-        is_admin = user.is_staff or user.is_superuser
+#     def get(self, request):
+#         user = request.user
+#         is_admin = user.is_staff or user.is_superuser
         
-        if is_admin:
-            return Response(self._get_admin_dashboard())
-        else:
-            return Response(self._get_user_dashboard(user))
+#         if is_admin:
+#             return Response(self._get_admin_dashboard())
+#         else:
+#             return Response(self._get_user_dashboard(user))
     
-    def _get_user_dashboard(self, user):
-        """Dashboard for regular users"""
-        today = timezone.now()
-        current_year = today.year
+#     def _get_user_dashboard(self, user):
+#         """Dashboard for regular users"""
+#         today = timezone.now()
+#         current_year = today.year
         
-        # Projects
-        user_projects = Project.objects.filter(
-            Q(owner=user) | Q(raci_assignments__user=user)
-        ).distinct()
+#         # Projects
+#         user_projects = Project.objects.filter(
+#             Q(owner=user) | Q(raci_assignments__user=user)
+#         ).distinct()
         
-        projects_list = []
-        for project in user_projects:
-            is_overdue = False
-            days_overdue = 0
+#         projects_list = []
+#         for project in user_projects:
+#             is_overdue = False
+#             days_overdue = 0
             
-            if project.end_date and project.end_date < today:
-                if project.status not in ['completed', 'cancelled']:
-                    is_overdue = True
-                    days_overdue = (today - project.end_date).days
+#             if project.end_date and project.end_date < today:
+#                 if project.status not in ['completed', 'cancelled']:
+#                     is_overdue = True
+#                     days_overdue = (today - project.end_date).days
             
-            duration = None
-            if project.start_date and project.end_date:
-                duration = (project.end_date - project.start_date).days
+#             duration = None
+#             if project.start_date and project.end_date:
+#                 duration = (project.end_date - project.start_date).days
             
-            projects_list.append({
-                'id': str(project.id),
-                'name': project.name,
-                'status': project.status,
-                'priority': project.priority,
-                'duration_days': duration,
-                'start_date': project.start_date,
-                'end_date': project.end_date,
-                'is_overdue': is_overdue,
-                'days_overdue': days_overdue,
-                'progress': project.progress,
-            })
+#             projects_list.append({
+#                 'id': str(project.id),
+#                 'name': project.name,
+#                 'status': project.status,
+#                 'priority': project.priority,
+#                 'duration_days': duration,
+#                 'start_date': project.start_date,
+#                 'end_date': project.end_date,
+#                 'is_overdue': is_overdue,
+#                 'days_overdue': days_overdue,
+#                 'progress': project.progress,
+#             })
         
-        # Leave stats
-        try:
-            leave_allocation = LeaveAllocation.objects.get(
-                user=user, year=current_year
-            )
-            leave_stats = {
-                'annual_total': leave_allocation.annual_leave_days,
-                'annual_used': leave_allocation.annual_used,
-                'annual_remaining': leave_allocation.annual_remaining,
-                'sick_total': leave_allocation.sick_leave_days,
-                'sick_used': leave_allocation.sick_used,
-                'sick_remaining': leave_allocation.sick_remaining,
-            }
-        except LeaveAllocation.DoesNotExist:
-            leave_stats = {
-                'annual_total': 0,
-                'annual_used': 0,
-                'annual_remaining': 0,
-                'sick_total': 0,
-                'sick_used': 0,
-                'sick_remaining': 0,
-            }
+#         # Leave stats
+#         try:
+#             leave_allocation = LeaveAllocation.objects.get(
+#                 user=user, year=current_year
+#             )
+#             leave_stats = {
+#                 'annual_total': leave_allocation.annual_leave_days,
+#                 'annual_used': leave_allocation.annual_used,
+#                 'annual_remaining': leave_allocation.annual_remaining,
+#                 'sick_total': leave_allocation.sick_leave_days,
+#                 'sick_used': leave_allocation.sick_used,
+#                 'sick_remaining': leave_allocation.sick_remaining,
+#             }
+#         except LeaveAllocation.DoesNotExist:
+#             leave_stats = {
+#                 'annual_total': 0,
+#                 'annual_used': 0,
+#                 'annual_remaining': 0,
+#                 'sick_total': 0,
+#                 'sick_used': 0,
+#                 'sick_remaining': 0,
+#             }
         
-        # Recent activities
-        activities = self._get_user_activities(user)
+#         # Recent activities
+#         activities = self._get_user_activities(user)
         
-        return {
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'full_name': user.get_full_name() or f"{user.first_name} {user.last_name}",
-                'email': user.email,
-                'last_login': user.last_login,
-            },
-            'projects': {
-                'total': user_projects.count(),
-                'list': projects_list,
-            },
-            'leave': leave_stats,
-            'recent_activities': activities,
-        }
+#         return {
+#             'user': {
+#                 'id': user.id,
+#                 'username': user.username,
+#                 'full_name': user.get_full_name() or f"{user.first_name} {user.last_name}",
+#                 'email': user.email,
+#                 'last_login': user.last_login,
+#             },
+#             'projects': {
+#                 'total': user_projects.count(),
+#                 'list': projects_list,
+#             },
+#             'leave': leave_stats,
+#             'recent_activities': activities,
+#         }
     
-    def _get_admin_dashboard(self):
-        """Dashboard for admin users"""
-        today = timezone.now()
-        current_year = today.year
+#     def _get_admin_dashboard(self):
+#         """Dashboard for admin users"""
+#         today = timezone.now()
+#         current_year = today.year
         
-        # All projects
-        all_projects = Project.objects.all()
-        projects_by_status = all_projects.values('status').annotate(
-            count=Count('id')
-        )
+#         # All projects
+#         all_projects = Project.objects.all()
+#         projects_by_status = all_projects.values('status').annotate(
+#             count=Count('id')
+#         )
         
-        # Overdue projects
-        overdue_projects = []
-        for project in all_projects.filter(status__in=['pending', 'in_progress']):
-            if project.end_date and project.end_date < today:
-                days_overdue = (today - project.end_date).days
-                overdue_projects.append({
-                    'id': str(project.id),
-                    'name': project.name,
-                    'owner': project.owner.get_full_name(),
-                    'days_overdue': days_overdue,
-                    'end_date': project.end_date,
-                    'status': project.status,
-                })
+#         # Overdue projects
+#         overdue_projects = []
+#         for project in all_projects.filter(status__in=['pending', 'in_progress']):
+#             if project.end_date and project.end_date < today:
+#                 days_overdue = (today - project.end_date).days
+#                 overdue_projects.append({
+#                     'id': str(project.id),
+#                     'name': project.name,
+#                     'owner': project.owner.get_full_name(),
+#                     'days_overdue': days_overdue,
+#                     'end_date': project.end_date,
+#                     'status': project.status,
+#                 })
         
-        # Leave stats
-        leave_allocations = LeaveAllocation.objects.filter(year=current_year)
-        total_annual_allocated = leave_allocations.aggregate(
-            Sum('annual_leave_days')
-        )['annual_leave_days__sum'] or 0
+#         # Leave stats
+#         leave_allocations = LeaveAllocation.objects.filter(year=current_year)
+#         total_annual_allocated = leave_allocations.aggregate(
+#             Sum('annual_leave_days')
+#         )['annual_leave_days__sum'] or 0
         
-        total_annual_used = leave_allocations.aggregate(
-            Sum('annual_used')
-        )['annual_used__sum'] or 0
+#         total_annual_used = leave_allocations.aggregate(
+#             Sum('annual_used')
+#         )['annual_used__sum'] or 0
         
-        # Current leaves
-        current_leaves = LeaveRequest.objects.filter(
-            status='approved',
-            start_date__lte=today,
-            end_date__gte=today
-        ).select_related('user')
+#         # Current leaves
+#         current_leaves = LeaveRequest.objects.filter(
+#             status='approved',
+#             start_date__lte=today,
+#             end_date__gte=today
+#         ).select_related('user')
         
-        people_on_leave = [{
-            'user_id': leave.user.id,
-            'user': leave.user.get_full_name(),
-            'leave_type': leave.get_leave_type_display(),
-            'start_date': leave.start_date,
-            'end_date': leave.end_date,
-        } for leave in current_leaves]
+#         people_on_leave = [{
+#             'user_id': leave.user.id,
+#             'user': leave.user.get_full_name(),
+#             'leave_type': leave.get_leave_type_display(),
+#             'start_date': leave.start_date,
+#             'end_date': leave.end_date,
+#         } for leave in current_leaves]
         
-        pending_leaves = LeaveRequest.objects.filter(
-            status='pending'
-        ).count()
+#         pending_leaves = LeaveRequest.objects.filter(
+#             status='pending'
+#         ).count()
         
-        # User stats
-        total_users = User.objects.count()
-        active_users = User.objects.filter(is_active=True).count()
+#         # User stats
+#         total_users = User.objects.count()
+#         active_users = User.objects.filter(is_active=True).count()
         
-        # Recent activities
-        activities = self._get_admin_activities()
+#         # Recent activities
+#         activities = self._get_admin_activities()
         
-        return {
-            'overview': {
-                'total_users': total_users,
-                'active_users': active_users,
-                'total_projects': all_projects.count(),
-                'overdue_projects_count': len(overdue_projects),
-                'people_on_leave_count': len(people_on_leave),
-                'pending_leave_requests': pending_leaves,
-            },
-            'projects': {
-                'total': all_projects.count(),
-                'by_status': list(projects_by_status),
-                'overdue': overdue_projects,
-            },
-            'leave': {
-                'total_annual_allocated': total_annual_allocated,
-                'total_annual_used': total_annual_used,
-                'total_annual_remaining': total_annual_allocated - total_annual_used,
-                'current_leaves': people_on_leave,
-                'pending_requests': pending_leaves,
-            },
-            'recent_activities': activities,
-        }
+#         return {
+#             'overview': {
+#                 'total_users': total_users,
+#                 'active_users': active_users,
+#                 'total_projects': all_projects.count(),
+#                 'overdue_projects_count': len(overdue_projects),
+#                 'people_on_leave_count': len(people_on_leave),
+#                 'pending_leave_requests': pending_leaves,
+#             },
+#             'projects': {
+#                 'total': all_projects.count(),
+#                 'by_status': list(projects_by_status),
+#                 'overdue': overdue_projects,
+#             },
+#             'leave': {
+#                 'total_annual_allocated': total_annual_allocated,
+#                 'total_annual_used': total_annual_used,
+#                 'total_annual_remaining': total_annual_allocated - total_annual_used,
+#                 'current_leaves': people_on_leave,
+#                 'pending_requests': pending_leaves,
+#             },
+#             'recent_activities': activities,
+#         }
     
-    def _get_user_activities(self, user):
-        """Get recent activities for a user"""
-        activities = []
+#     def _get_user_activities(self, user):
+#         """Get recent activities for a user"""
+#         activities = []
         
-        # Recent comments
-        recent_project_comments = ProjectComment.objects.filter(
-            user=user
-        ).select_related('project').order_by('-created_at')[:5]
+#         # Recent comments
+#         recent_project_comments = ProjectComment.objects.filter(
+#             user=user
+#         ).select_related('project').order_by('-created_at')[:5]
         
-        recent_milestone_comments = MilestoneComment.objects.filter(
-            user=user
-        ).select_related('milestone').order_by('-created_at')[:5]
+#         recent_milestone_comments = MilestoneComment.objects.filter(
+#             user=user
+#         ).select_related('milestone').order_by('-created_at')[:5]
         
-        # Recent leave requests
-        recent_leaves = LeaveRequest.objects.filter(
-            user=user
-        ).order_by('-created_at')[:5]
+#         # Recent leave requests
+#         recent_leaves = LeaveRequest.objects.filter(
+#             user=user
+#         ).order_by('-created_at')[:5]
         
-        for comment in recent_project_comments:
-            activities.append({
-                'type': 'comment',
-                'action': 'Commented on project',
-                'target': comment.project.name,
-                'timestamp': comment.created_at,
-                'details': comment.content[:100]
-            })
+#         for comment in recent_project_comments:
+#             activities.append({
+#                 'type': 'comment',
+#                 'action': 'Commented on project',
+#                 'target': comment.project.name,
+#                 'timestamp': comment.created_at,
+#                 'details': comment.content[:100]
+#             })
         
-        for comment in recent_milestone_comments:
-            activities.append({
-                'type': 'milestone_comment',
-                'action': 'Commented on milestone',
-                'target': comment.milestone.title,
-                'timestamp': comment.created_at,
-                'details': comment.content[:100]
-            })
+#         for comment in recent_milestone_comments:
+#             activities.append({
+#                 'type': 'milestone_comment',
+#                 'action': 'Commented on milestone',
+#                 'target': comment.milestone.title,
+#                 'timestamp': comment.created_at,
+#                 'details': comment.content[:100]
+#             })
         
-        for leave in recent_leaves:
-            activities.append({
-                'type': 'leave',
-                'action': f'Leave request {leave.status}',
-                'target': leave.get_leave_type_display(),
-                'timestamp': leave.created_at,
-                'details': f"{leave.num_days} days"
-            })
+#         for leave in recent_leaves:
+#             activities.append({
+#                 'type': 'leave',
+#                 'action': f'Leave request {leave.status}',
+#                 'target': leave.get_leave_type_display(),
+#                 'timestamp': leave.created_at,
+#                 'details': f"{leave.num_days} days"
+#             })
         
-        activities.sort(key=lambda x: x['timestamp'], reverse=True)
-        return activities[:10]
+#         activities.sort(key=lambda x: x['timestamp'], reverse=True)
+#         return activities[:10]
     
-    def _get_admin_activities(self):
-        """Get recent activities for admin view"""
-        activities = []
+#     def _get_admin_activities(self):
+#         """Get recent activities for admin view"""
+#         activities = []
         
-        recent_comments = ProjectComment.objects.select_related(
-            'user', 'project'
-        ).order_by('-created_at')[:10]
+#         recent_comments = ProjectComment.objects.select_related(
+#             'user', 'project'
+#         ).order_by('-created_at')[:10]
         
-        recent_projects = Project.objects.select_related(
-            'owner'
-        ).order_by('-created_at')[:5]
+#         recent_projects = Project.objects.select_related(
+#             'owner'
+#         ).order_by('-created_at')[:5]
         
-        for comment in recent_comments:
-            activities.append({
-                'type': 'comment',
-                'user': comment.user.get_full_name(),
-                'user_id': comment.user.id,
-                'action': 'Commented on project',
-                'target': comment.project.name,
-                'timestamp': comment.created_at,
-            })
+#         for comment in recent_comments:
+#             activities.append({
+#                 'type': 'comment',
+#                 'user': comment.user.get_full_name(),
+#                 'user_id': comment.user.id,
+#                 'action': 'Commented on project',
+#                 'target': comment.project.name,
+#                 'timestamp': comment.created_at,
+#             })
         
-        for project in recent_projects:
-            activities.append({
-                'type': 'project',
-                'user': project.owner.get_full_name(),
-                'user_id': project.owner.id,
-                'action': 'Created project',
-                'target': project.name,
-                'timestamp': project.created_at,
-            })
+#         for project in recent_projects:
+#             activities.append({
+#                 'type': 'project',
+#                 'user': project.owner.get_full_name(),
+#                 'user_id': project.owner.id,
+#                 'action': 'Created project',
+#                 'target': project.name,
+#                 'timestamp': project.created_at,
+#             })
         
-        activities.sort(key=lambda x: x['timestamp'], reverse=True)
-        return activities[:15]
+#         activities.sort(key=lambda x: x['timestamp'], reverse=True)
+#         return activities[:15]

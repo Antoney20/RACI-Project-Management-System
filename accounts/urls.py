@@ -31,6 +31,6 @@ urlpatterns = [
     path('all/users/', views.user_list, name='user-list'),
     path('', include(router.urls)),
     
-    path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
+    # path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
 
 ]
