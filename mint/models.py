@@ -119,6 +119,9 @@ class LeaveRequest(models.Model):
         if self.leave_type == LeaveType.OTHER and self.leave_type_other:
             leave_type_display = self.leave_type_other
         return f"{self.user.username} - {leave_type_display} ({self.status})"
+    
+    
+    
 class LeaveAllocation(models.Model):
     """Track annual leave allocation and utilization per year"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -203,18 +206,21 @@ class LeaveAllocation(models.Model):
     def other_remaining(self):
         return self.other_leave_days - self.other_used
 
-class TaskStatus(models.TextChoices):
-    NOT_STARTED = "not_started", "Not Started"
-    IN_PROGRESS = "in_progress", "In Progress"
-    PENDING = "pending", "Pending"
-    COMPLETED = "completed", "Completed"
-    CANCELLED = "cancelled", "Cancelled"
 
-class TaskPriority(models.TextChoices):
-    LOW = "low", "Low"
-    MEDIUM = "medium", "Medium"
-    HIGH = "high", "High"
-    URGENT = "urgent", "Urgent"
+
+
+# class TaskStatus(models.TextChoices):
+#     NOT_STARTED = "not_started", "Not Started"
+#     IN_PROGRESS = "in_progress", "In Progress"
+#     PENDING = "pending", "Pending"
+#     COMPLETED = "completed", "Completed"
+#     CANCELLED = "cancelled", "Cancelled"
+
+# class TaskPriority(models.TextChoices):
+#     LOW = "low", "Low"
+#     MEDIUM = "medium", "Medium"
+#     HIGH = "high", "High"
+#     URGENT = "urgent", "Urgent"
 
 
 # class RACIRole(models.TextChoices):

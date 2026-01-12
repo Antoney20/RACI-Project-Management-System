@@ -13,12 +13,194 @@ from .serializers import (
     ActivityDocumentSerializer
 )
 
+# class ProjectViewSet(viewsets.ModelViewSet):
+#     """
+#     Project CRUD operations with role-based access.
+#     - Users see projects where they have activities (via RACI roles)
+#     - Staff can see all projects
+#     """
+#     permission_classes = [IsAuthenticated]
+#     filter_backends = [DjangoFilterBackend]
+#     filterset_fields = ['status', 'priority']
+#     search_fields = ['name', 'description']
+#     ordering_fields = ['created_at', 'start_date']
+#     ordering = ['-created_at']
+
+#     def get_queryset(self):
+#         """Filter projects based on user permissions"""
+#         user = self.request.user
+        
+#         if user.is_staff:
+#             return Project.objects.all().select_related('created_by', 'sprint')
+        
+#         # Users see projects where they have activities (through any RACI role)
+#         return Project.objects.filter(
+#             Q(activities__responsible=user) |
+#             Q(activities__accountable=user) |
+#             Q(activities__consulted=user) |
+#             Q(activities__informed=user)
+#         ).distinct().select_related('created_by', 'sprint')
+
+#     def get_serializer_class(self):
+#         """Return appropriate serializer based on action"""
+#         if self.action == 'create':
+#             return ProjectCreateSerializer
+#         if self.action == 'retrieve':
+#             return ProjectDetailSerializer
+#         return ProjectListSerializer
+
+#     def perform_create(self, serializer):
+#         """Set the creator when creating a project"""
+#         serializer.save(created_by=self.request.user)
+
+#     def destroy(self, request, *args, **kwargs):
+#         """Only staff can delete projects"""
+#         if not request.user.is_staff:
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": "Only administrators can delete projects."
+#                 },
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+        
+#         project = self.get_object()
+#         project_name = project.name
+#         self.perform_destroy(project)
+        
+#         return Response(
+#             {
+#                 "success": True,
+#                 "message": f'Project "{project_name}" deleted successfully.'
+#             },
+#             status=status.HTTP_200_OK
+#         )
+
+
+# class ActivityViewSet(viewsets.ModelViewSet):
+#     """
+#     Activity CRUD operations with RACI role-based access.
+#     - Users with any RACI role (R/A/C/I) can view activities
+#     - Responsible/Accountable can edit
+#     - Staff can see all
+#     """
+#     permission_classes = [IsAuthenticated]
+#     filter_backends = [DjangoFilterBackend]
+#     filterset_fields = ['status', 'priority', 'project', 'is_complete']
+#     search_fields = ['name', 'description']
+#     ordering_fields = ['created_at', 'deadline']
+#     ordering = ['-created_at']
+
+#     def get_queryset(self):
+#         """Filter activities based on user RACI roles"""
+#         user = self.request.user
+        
+#         if user.is_staff:
+#             return Activity.objects.all().select_related(
+#                 'project', 'responsible', 'accountable'
+#             ).prefetch_related('consulted', 'informed')
+        
+#         # Users see activities where they have any RACI role
+#         return Activity.objects.filter(
+#             Q(responsible=user) | 
+#             Q(accountable=user) | 
+#             Q(consulted=user) | 
+#             Q(informed=user) 
+#         ).distinct().select_related(
+#             'project', 'responsible', 'accountable'
+#         ).prefetch_related('consulted', 'informed')
+
+#     def get_serializer_class(self):
+#         """Return appropriate serializer based on action"""
+#         if self.action == 'create':
+#             return ActivityCreateSerializer
+#         if self.action == 'retrieve':
+#             return ActivityDetailSerializer
+#         return ActivityListSerializer
+
+#     @action(detail=True, methods=['post'], url_path='mark-complete')
+#     def mark_complete(self, request, pk=None):
+#         """Mark activity as completed"""
+#         activity = self.get_object()
+#         activity.status = 'completed'
+#         activity.save()
+        
+#         return Response({
+#             'success': True,
+#             'message': 'Activity marked as complete',
+#             'is_complete': activity.is_complete
+#         })
+
+#     @action(detail=True, methods=['get', 'post'])
+#     def comments(self, request, pk=None):
+#         """Get all comments or create a new comment for an activity"""
+#         activity = self.get_object()
+        
+#         if request.method == 'GET':
+#             comments = activity.comments.select_related('user').order_by('-created_at')
+#             serializer = ActivityCommentSerializer(comments, many=True)
+#             return Response(serializer.data)
+        
+#         elif request.method == 'POST':
+#             serializer = ActivityCommentSerializer(
+#                 data={'activity': activity.id, 'content': request.data.get('content')}
+#             )
+#             if serializer.is_valid():
+#                 serializer.save(user=request.user, activity=activity)
+#                 return Response(serializer.data, status=status.HTTP_201_CREATED)
+#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#     @action(detail=True, methods=['get', 'post'])
+#     def milestones(self, request, pk=None):
+#         """Get all milestones or create a new milestone for an activity"""
+#         activity = self.get_object()
+        
+#         if request.method == 'GET':
+#             milestones = activity.milestones.all().order_by('due_date')
+#             serializer = MilestoneSerializer(milestones, many=True)
+#             return Response(serializer.data)
+        
+#         elif request.method == 'POST':
+#             serializer = MilestoneSerializer(
+#                 data={'activity': activity.id, **request.data}
+#             )
+#             if serializer.is_valid():
+#                 serializer.save()
+#                 return Response(serializer.data, status=status.HTTP_201_CREATED)
+#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#     @action(detail=True, methods=['patch'], url_path='update-status')
+#     def update_status(self, request, pk=None):
+#         """Update activity status and priority"""
+#         activity = self.get_object()
+        
+#         new_status = request.data.get('status')
+#         new_priority = request.data.get('priority')
+        
+#         if new_status:
+#             activity.status = new_status
+#         if new_priority:
+#             activity.priority = new_priority
+        
+#         activity.save()
+        
+#         return Response({
+#             'success': True,
+#             'message': 'Activity updated successfully',
+#             'status': activity.status,
+#             'priority': activity.priority,
+#             'is_complete': activity.is_complete
+#         })
+
+
 
 class ProjectViewSet(viewsets.ModelViewSet):
     """
     Project CRUD operations with role-based access.
-    - Created by user can view/edit their projects
-    - Staff can see all projects
+    - Users see projects where they have activities (via RACI roles)
+    - Only Admin and Supervisor can edit projects
+    - Only Admin can delete projects
+    - Staff can see all projects (if is_staff=True)
     """
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
@@ -34,10 +216,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if user.is_staff:
             return Project.objects.all().select_related('created_by', 'sprint')
         
-        # Users see projects they created
+        # Users see projects where they have activities (through any RACI role)
         return Project.objects.filter(
-            created_by=user
-        ).select_related('created_by', 'sprint')
+            Q(activities__responsible=user) |
+            Q(activities__accountable=user) |
+            Q(activities__consulted=user) |
+            Q(activities__informed=user)
+        ).distinct().select_related('created_by', 'sprint')
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -51,13 +236,43 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """Set the creator when creating a project"""
         serializer.save(created_by=self.request.user)
 
-    def destroy(self, request, *args, **kwargs):
-        """Only staff can delete projects"""
-        if not request.user.is_staff:
+    def update(self, request, *args, **kwargs):
+        """Only Admin or Supervisor can update projects"""
+        user = request.user
+        
+        if not (user.is_admin() or user.is_supervisor()):
             return Response(
                 {
                     "success": False,
-                    "message": "Only administrators can delete projects."
+                    "message": "Only Admins and Supervisors can edit projects."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Only Admin or Supervisor can partially update projects"""
+        user = request.user
+        
+        if not (user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins and Supervisors can edit projects."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """Only Admin can delete projects"""
+        if not request.user.is_admin():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins can delete projects."
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
@@ -79,8 +294,9 @@ class ActivityViewSet(viewsets.ModelViewSet):
     """
     Activity CRUD operations with RACI role-based access.
     - Users with any RACI role (R/A/C/I) can view activities
-    - Responsible/Accountable can edit
-    - Staff can see all
+    - Only Admin or Supervisor can edit activities
+    - Only Admin can delete activities
+    - Staff can see all activities (if is_staff=True)
     """
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
@@ -116,10 +332,75 @@ class ActivityViewSet(viewsets.ModelViewSet):
             return ActivityDetailSerializer
         return ActivityListSerializer
 
+    def update(self, request, *args, **kwargs):
+        """Only Admin or Supervisor can update activities"""
+        user = request.user
+        
+        if not (user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins and Supervisors can edit activities."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Only Admin or Supervisor can partially update activities"""
+        user = request.user
+        
+        if not (user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins and Supervisors can edit activities."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """Only Admin can delete activities"""
+        if not request.user.is_admin():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins can delete activities."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        activity = self.get_object()
+        activity_name = activity.name
+        self.perform_destroy(activity)
+        
+        return Response(
+            {
+                "success": True,
+                "message": f'Activity "{activity_name}" deleted successfully.'
+            },
+            status=status.HTTP_200_OK
+        )
+
     @action(detail=True, methods=['post'], url_path='mark-complete')
     def mark_complete(self, request, pk=None):
-        """Mark activity as completed"""
+        """Mark activity as completed - only Responsible or Accountable users"""
         activity = self.get_object()
+        user = request.user
+        
+        # Check if user is Responsible or Accountable for this activity
+        if not (activity.responsible == user or activity.accountable == user or user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Responsible or Accountable users can mark activity as complete."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         activity.status = 'completed'
         activity.save()
         
@@ -159,6 +440,16 @@ class ActivityViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         
         elif request.method == 'POST':
+            # Only Admin or Supervisor can create milestones
+            if not (request.user.is_admin() or request.user.is_supervisor()):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Only Admins and Supervisors can create milestones."
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
             serializer = MilestoneSerializer(
                 data={'activity': activity.id, **request.data}
             )
@@ -169,7 +460,18 @@ class ActivityViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='update-status')
     def update_status(self, request, pk=None):
-        """Update activity status and priority"""
+        """Update activity status and priority - only Admin or Supervisor"""
+        user = request.user
+        
+        if not (user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins and Supervisors can update activity status."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         activity = self.get_object()
         
         new_status = request.data.get('status')
@@ -189,7 +491,6 @@ class ActivityViewSet(viewsets.ModelViewSet):
             'priority': activity.priority,
             'is_complete': activity.is_complete
         })
-
 
 class MilestoneViewSet(viewsets.ModelViewSet):
     """
