@@ -13,6 +13,10 @@ import os
 from pathlib import Path
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -103,7 +107,7 @@ ROOT_URLCONF = "ndovu.urls"
 GZIP_MIN_LENGTH = 256
 
 
-AUTH_USER_MODEL = 'accounts.CustomUser'
+
 
 # Application definition
 
@@ -138,7 +142,7 @@ INSTALLED_APPS = [
 ]
 
 
-
+# AUTH_USER_MODEL = 'accounts.CustomUser'
 
 CRONJOBS = [
     # Every day at 8:00 AM - Move completed projects to review
@@ -247,15 +251,25 @@ WSGI_APPLICATION = "raci.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "raci.sqlite3",
-        "OPTIONS": {          
-            "timeout": 60,    
-        },
-    }
-}
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "raci.sqlite3",
+#         "OPTIONS": {          
+#             "timeout": 60,    
+#         },
+#     }
+# }
+
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "raci_db.sqlite3",
+#         "OPTIONS": {          
+#             "timeout": 60,    
+#         },
+#     }
+# }
 
 # DATABASES = {
 #     'default': {
@@ -267,6 +281,19 @@ DATABASES = {
 #         'PORT': '5432',
 #     }
 # }
+
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_PORT'),
+    }
+}
+
 
 
 # Password validation
