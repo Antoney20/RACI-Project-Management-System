@@ -33,6 +33,7 @@ from .serializers import (
 from core.services.emails_auth import (
     send_password_reset_email, send_password_change_confirmation
 )
+from core.services.invited import send_invite_email, send_invite_success_email
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -56,8 +57,8 @@ class RegisterView(generics.CreateAPIView):
             serializer.is_valid(raise_exception=True)
 
             user = serializer.save()
-            user.is_active = True
-            user.status = UserStatus.ACTIVE
+            user.is_active = False
+            # user.status = UserStatus.PENDING
             user.verification_token = default_token_generator.make_token(user)
             user.save()
 
@@ -530,9 +531,12 @@ class InviteUserView(generics.CreateAPIView):
             
             # Generate invite link - Fixed variable name
             invite_link = f"{settings.FRONTEND_URL}/auth/accept-invite/{invite_user.invite_token}/"
-            
-            # Optionally send email here
-            #  email
+            email_sent = send_invite_email(
+                invite_user=invite_user,
+                invite_link=invite_link,
+                invited_by=request.user
+            )
+
             return Response({
                 "success": True,
                 "message": "Invitation created successfully",
@@ -617,6 +621,8 @@ class AcceptInviteView(generics.GenericAPIView):
         try:
             serializer.is_valid(raise_exception=True)
             user = serializer.save()
+            
+            send_invite_success_email(user)
             
             return Response({
                 "success": True,

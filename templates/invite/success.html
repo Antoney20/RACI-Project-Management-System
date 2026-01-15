@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        .wrapper {
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+        }
+        h2 {
+            color: #27aae1;
+            margin-bottom: 15px;
+        }
+        p {
+            color: #555;
+            font-size: 15px;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 25px;
+            font-size: 13px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <div class="container">
+        <h2>Welcome to RACI by CEMA 🎉</h2>
+
+        <p>Hello <strong>{{ user_name }}</strong>,</p>
+
+        <p>
+            Your account has been successfully activated.
+            You can now log in to get started
+        </p>
+
+  
+        <div class="footer">
+            <p>
+                Need help? Contact us at
+                <a href="mailto:{{ support_email }}">{{ support_email }}</a>
+            </p>
+            <p>© {{ current_year }} CEMA</p>
+        </div>
+    </div>
+</div>
+</body>
+</html>

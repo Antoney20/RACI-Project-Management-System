@@ -8,15 +8,14 @@ from smtplib import SMTPException
 logger = logging.getLogger(__name__)
 
 
-
 def send_rejection_email(user, rejection_reason=''):
     """Send email notifying user of registration rejection"""
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema-africa.uonbi.ac.ke')
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema.africa')
     reply_to = getattr(settings, 'REPLY_TO_EMAIL', from_email)
     recipient = user.email
     subject = 'Registration Status - Action Required'
 
-    contact_email = getattr(settings, 'SUPPORT_EMAIL', 'support@cema-africa.uonbi.ac.ke')
+    contact_email = getattr(settings, 'SUPPORT_EMAIL', 'raci@cema.africa')
 
     context = {
         'user_name': user.first_name or user.username,
@@ -48,7 +47,7 @@ def send_rejection_email(user, rejection_reason=''):
 
 def send_password_reset_email(user, reset_link):
     """Send password reset email with template"""
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema-africa.uonbi.ac.ke')
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema.africa')
     reply_to = getattr(settings, 'REPLY_TO_EMAIL', from_email)
     recipient = user.email
     subject = 'Password Reset Request - CEMA'
@@ -82,12 +81,12 @@ def send_password_reset_email(user, reset_link):
 
 def send_password_change_confirmation(user):
     """Send confirmation email after password change"""
-    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema-africa.uonbi.ac.ke')
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cema.africa')
     reply_to = getattr(settings, 'REPLY_TO_EMAIL', from_email)
     recipient = user.email
     subject = 'Password Changed Successfully - CEMA'
 
-    contact_email = getattr(settings, 'SUPPORT_EMAIL', 'support@cema-africa.uonbi.ac.ke')
+    contact_email = getattr(settings, 'SUPPORT_EMAIL', 'raci@cema.africa')
 
     context = {
         'user_name': user.first_name or user.username,
