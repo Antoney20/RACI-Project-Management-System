@@ -12,7 +12,7 @@ class UserMinimalSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'full_name', 'role', 'department', 'profile_image']
+        fields = ['id', 'username', 'email', 'full_name', 'gender', 'role', 'department', 'profile_image']
 
 
 # PROJECT SERIALIZERS

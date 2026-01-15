@@ -28,9 +28,11 @@ urlpatterns = [
     path('api/accounts/', include('accounts.urls')),
     path('api/', include('mint.urls')),
     path('api/', include('projects.urls')),
+    path('api/', include('employee.urls')),
 ]
 if settings.DEBUG:
     urlpatterns += staticfiles_urlpatterns()
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    
     

@@ -118,6 +118,7 @@ INSTALLED_APPS = [
     'accounts',
     'mint',
     'projects',
+    'employee',
     
     ## Third party
     'rest_framework',

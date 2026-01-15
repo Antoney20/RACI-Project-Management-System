@@ -71,10 +71,12 @@ class InviteSerializer(serializers.ModelSerializer):
     department = serializers.CharField(required=False, allow_blank=True)
     position = serializers.CharField(required=False, allow_blank=True)
     message = serializers.CharField(required=False, allow_blank=True)
+    gender = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    is_external_member = serializers.BooleanField(default=False, required=False)
 
     class Meta:
         model = CustomUser
-        fields = ["email", "role", "department", "position", "message"]
+        fields = ["email", "role", "department", "position", "gender","is_external_member", "message"]
 
     def validate_email(self, value):
         if CustomUser.objects.filter(email=value).exists():
@@ -87,8 +89,11 @@ class InviteSerializer(serializers.ModelSerializer):
             role=validated_data["role"],
             department=validated_data.get("department"),
             position=validated_data.get("position"),
+            gender=validated_data.get("gender", ""),
             is_external_member=validated_data.get("is_external_member", False),
+            
             description=validated_data.get("description", ""),
+            
             status=UserStatus.INVITED,
             is_active=False,
             is_invited = True,

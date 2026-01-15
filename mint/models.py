@@ -139,7 +139,6 @@ class LeaveAllocation(models.Model):
     )
 
     year = models.IntegerField(default=2025)
-    
     annual_leave_days = models.IntegerField(default=0)
     annual_used = models.IntegerField(default=0)
     annual_left = models.IntegerField(default=0)

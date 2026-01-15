@@ -537,6 +537,7 @@ class InviteUserView(generics.CreateAPIView):
                 "success": True,
                 "message": "Invitation created successfully",
                 "data": {
+                    "user_id": invite_user.id,
                     "invite_link": invite_link,
                     "email": invite_user.email,
                     "role": invite_user.role,
