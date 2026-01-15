@@ -46,6 +46,8 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",  
     "https://localhost:3000", 
+    "https://raci.cema.africa",
+    "http://raci.cema.africa",
 
 ]
 
@@ -66,7 +68,8 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000', 
     'https://localhost:3000', 
-
+    "https://raci.cema.africa",
+    "http://raci.cema.africa"
 ]
 
 
@@ -136,13 +139,10 @@ INSTALLED_APPS = [
     'django_crontab'
 
 
-
-
-
 ]
 
 
-# AUTH_USER_MODEL = 'accounts.CustomUser'
+AUTH_USER_MODEL = 'accounts.CustomUser'
 
 CRONJOBS = [
     # Every day at 8:00 AM - Move completed projects to review
@@ -344,7 +344,8 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-FRONTEND_URL = "http://localhost:3000"
+FRONTEND_URL =  "https://raci.cema.africa",
+  
 
 
 
