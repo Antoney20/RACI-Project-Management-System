@@ -114,13 +114,15 @@ class ActivityCreateSerializer(serializers.ModelSerializer):
 class ActivityListSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
     responsible = UserMinimalSerializer(read_only=True)
+    informed = UserMinimalSerializer(read_only=True, many=True)
+    consulted = UserMinimalSerializer(read_only=True, many=True)
     accountable = UserMinimalSerializer(read_only=True)
     milestone_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Activity
         fields = [
-            'id', 'project', 'project_name', 'name', 'responsible', 'accountable',
+            'id', 'project', 'project_name', 'name', 'responsible', 'accountable', 'consulted','informed',
             'status', 'priority', 'is_complete', 'deadline', 'milestone_count', 'created_at'
         ]
         read_only_fields = ['id', 'is_complete', 'created_at']
