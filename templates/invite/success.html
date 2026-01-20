@@ -39,24 +39,29 @@
 <body>
 <div class="wrapper">
     <div class="container">
-        <h2>Welcome to RACI by CEMA 🎉</h2>
+        <h2>Welcome to RACI  🎉</h2>
 
         <p>Hello <strong>{{ user_name }}</strong>,</p>
 
         <p>
-            Your account has been successfully activated.
+            Your account has been successfully activated. <br/>
             You can now log in to get started
         </p>
-
   
         <div class="footer">
             <p>
                 Need help? Contact us at
                 <a href="mailto:{{ support_email }}">{{ support_email }}</a>
             </p>
-            <p>© {{ current_year }} CEMA</p>
+             <p><strong>Best regards,</strong><br>
+                    RACI 
+                </p>
+                <p style="margin-top: 15px; color: #aaa;">
+                    © {{ current_year }} CEMA. All rights reserved.
+                </p>
         </div>
     </div>
 </div>
 </body>
 </html>
+

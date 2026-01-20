@@ -531,11 +531,21 @@ class InviteUserView(generics.CreateAPIView):
             
             # Generate invite link - Fixed variable name
             invite_link = f"{settings.FRONTEND_URL}/auth/accept-invite/{invite_user.invite_token}/"
-            email_sent = send_invite_email(
-                invite_user=invite_user,
-                invite_link=invite_link,
-                invited_by=request.user
-            )
+            # email_sent = send_invite_email(
+            #     invite_user=invite_user,
+            #     invite_link=invite_link,
+            #     invited_by=request.user
+            # )
+            
+            
+            try:
+                send_invite_email(
+                    invite_user=invite_user,
+                    invite_link=invite_link,
+                    invited_by=request.user
+                )
+            except Exception as exc:
+                logger.exception("Invite email failed", exc_info=exc)
 
             return Response({
                 "success": True,

@@ -6,6 +6,9 @@ from django.core.validators import MinLengthValidator
 from django.utils import timezone
 
 
+from auditlog.registry import auditlog
+
+
 class UserStatus(models.TextChoices):
     INVITED = "invited", "Invited"
     ACTIVE = "active", "Active"
@@ -183,7 +186,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
-    # REQUIRED_FIELDS = ["username"]
+    REQUIRED_FIELDS = ["username"]
 
     objects = CustomUserManager()
 
@@ -271,3 +274,68 @@ class TokenBlacklist(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.token_type}"
 
+
+
+
+
+
+class EmailLog(models.Model):
+    STATUS_CHOICES = [
+        ('initial', 'Initial'),
+        ('sending', 'Sending'),
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+    ]
+
+    subject = models.TextField()
+    message = models.TextField(blank=True, null=True)
+    sender = models.CharField(
+        max_length=255,
+        default=settings.DEFAULT_FROM_EMAIL
+    )
+    recipient = models.TextField(help_text="Receiver email address")
+    category = models.CharField(max_length=50, default='other')
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default='initial'
+    )
+    error_message = models.TextField(blank=True, null=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    last_attempt = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(blank=True, null=True)
+
+    def mark_sending(self):
+        self.status = 'sending'
+        self.last_attempt = timezone.now()
+        self.save(update_fields=['status', 'last_attempt'])
+
+    def mark_sent(self):
+        self.status = 'sent'
+        self.sent_at = timezone.now()
+        self.error_message = None
+        self.save(update_fields=['status', 'sent_at', 'error_message'])
+
+    def mark_failed(self, exc):
+        self.status = 'failed'
+        self.error_message = str(exc)
+        self.retry_count += 1
+        self.last_attempt = timezone.now()
+        self.save(
+            update_fields=[
+                'status',
+                'error_message',
+                'retry_count',
+                'last_attempt'
+            ]
+        )
+
+    def __str__(self):
+        return f"[{self.category}] {self.subject} → {self.recipient} ({self.status})"
+    
+    
+    
+auditlog.register(CustomUser)
+auditlog.register(EmailLog)
