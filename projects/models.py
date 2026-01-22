@@ -69,19 +69,27 @@ class Activity(models.Model):
         ('urgent', 'Urgent'),
     ]
     
+
+    TYPE_CHOICES = [
+        ('general', 'General'),
+        ('manuscript', 'Manuscript'),
+        ('dashboard', 'Dashboard'),
+        ('analysis', 'Analysis'),
+        ('review', 'Review'),
+        ('data_collection', 'Data Collection'),
+        ('administrative', 'Administrative'),
+        ('other', 'Other'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="activities")
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
-    
+    type = models.CharField( max_length=30, choices=TYPE_CHOICES, default='general',  help_text="Category/type of activity" )
+    is_complete = models.BooleanField(default=False, editable=False)
+    completed_at = models.DateTimeField(null=True, blank=True, editable=False)
     # RACI roles
-    responsible = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True,
-        related_name="responsible_activities",
-        help_text="Person doing the work"
-    )
+    responsible = models.ForeignKey( User,  on_delete=models.SET_NULL,  null=True, related_name="responsible_activities", help_text="Person doing the work")
     accountable = models.ForeignKey(
         User, 
         on_delete=models.SET_NULL, 
@@ -89,8 +97,7 @@ class Activity(models.Model):
         related_name="accountable_activities",
         help_text="Person ultimately answerable"
     )
-    consulted = models.ManyToManyField(
-        User,
+    consulted = models.ManyToManyField( User,
         blank=True,
         related_name="consulted_activities",
         help_text="People to consult"
@@ -129,8 +136,12 @@ class Activity(models.Model):
     def save(self, *args, **kwargs):
         if self.status == 'completed':
             self.is_complete = True
+            if self.completed_at is None:
+                self.completed_at = timezone.now()
         else:
             self.is_complete = False
+            self.completed_at = None
+
         super().save(*args, **kwargs)
 
     def __str__(self):

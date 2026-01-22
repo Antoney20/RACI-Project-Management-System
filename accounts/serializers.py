@@ -108,12 +108,13 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, min_length=8)
     invite_token = serializers.CharField(write_only=True)
+    profile_image = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = CustomUser
         fields = [
             "invite_token", "username", "password", "password_confirm",
-            "first_name", "last_name", "phone"
+            "first_name", "last_name", "phone", "profile_image"
         ]
 
     def validate_username(self, value):
@@ -123,6 +124,20 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
         
         if CustomUser.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken")
+        
+        return value
+    
+    def validate_profile_image(self, value):
+        """Validate profile image if provided"""
+        if value:
+            # Check file size (max 50MB)
+            if value.size > 59 * 1024 * 1024:
+                raise serializers.ValidationError("Image file size cannot exceed 50MB")
+            
+            # Check file type
+            allowed_types = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
+            if value.content_type not in allowed_types:
+                raise serializers.ValidationError("Only JPEG, PNG, and WebP images are allowed")
         
         return value
 
@@ -169,6 +184,11 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
         user.first_name = validated_data.get("first_name", "")
         user.last_name = validated_data.get("last_name", "")
         user.phone = validated_data.get("phone", "")
+        
+        if "profile_image" in validated_data and validated_data["profile_image"]:
+            user.profile_image = validated_data["profile_image"]
+                
+        
         user.set_password(password)
         
         # Activate account
@@ -178,20 +198,6 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
         user.is_invited = False
         user.save()
 
- 
-        LeaveAllocation.objects.get_or_create(
-            user=user,
-            year=timezone.now().year,
-            defaults={
-                'annual_leave_days': 0,
-                'annual_used': 0,
-                'annual_left': 0,
-                'sick_leave_days': 0,
-                'sick_used': 0,
-                'other_leave_days': 0,
-                'other_used': 0
-            }
-        )
 
         return user
 

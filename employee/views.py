@@ -7,6 +7,7 @@ Handles operations and business logic for:
 - Leave requests and approvals
 """
 
+import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,10 +18,13 @@ from django.utils import timezone
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 
+logger = logging.getLogger(__name__)
+
 User = get_user_model()
 
 
 from employee.utils.leave_logic import calculate_working_days, get_leave_balance, validate_leave_request
+from core.services.leave_emails import (notify_supervisor_leave_request, send_leave_approved_email, send_leave_cancelled_email, send_leave_rejected_email )
 from projects.serializers import UserMinimalSerializer
 
 from .models import (
@@ -35,8 +39,6 @@ from .serializers import (
     LeaveGroupSerializer,
     LeaveRequestCreateSerializer,
     LeaveRequestSerializer,
-    
-    
 )
 
 
@@ -253,6 +255,15 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(user=user) 
         
+        try:
+            notify_supervisor_leave_request(serializer.instance)
+        except Exception as exc:
+            logger.warning(
+                f"Supervisor notification failed for leave {serializer.instance.id}: {exc}",
+                exc_info=True,
+            )
+
+        
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     @action(detail=False, methods=['get'])
@@ -334,6 +345,14 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_request.supervisor_notes = request.data.get('notes', '')
         leave_request.save()
         
+        try:
+            send_leave_approved_email(leave)
+        except Exception as exc:
+            logger.warning(
+                f"Leave approval email failed for leave : {exc}",
+                exc_info=True,
+            )
+        
         serializer = self.get_serializer(leave_request)
         return Response(serializer.data)
     
@@ -347,10 +366,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             return Response(
                 {'error': 'You are not authorized to reject this request'},
                 status=status.HTTP_403_FORBIDDEN
-            )
+   
+                 )
         
  
-        
         # Get rejection reason
         rejection_reason = request.data.get('rejection_reason')
         if not rejection_reason:
@@ -366,6 +385,14 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_request.rejection_reason = rejection_reason
         leave_request.supervisor_notes = request.data.get('notes', '')
         leave_request.save()
+        
+        try:
+            send_leave_rejected_email(leave)
+        except Exception as exc:
+            logger.warning(
+                f"Leave rejection email failed for leave : {exc}",
+                exc_info=True,
+            )
         
         serializer = self.get_serializer(leave_request)
         return Response(serializer.data)
@@ -392,6 +419,15 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_request.status = 'CANCELLED'
         leave_request.save()
         
+        try:
+            send_leave_cancelled_email(leave)
+        except Exception as exc:
+            logger.warning(
+                f"Leave cancellation email for leave {leave.id}: {exc}",
+                exc_info=True,
+            )
+        
+
         serializer = self.get_serializer(leave_request)
         return Response(serializer.data)
     

@@ -1,3 +1,4 @@
+import logging
 from django.shortcuts import render
 
 # Create your views here.
@@ -13,7 +14,11 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 
+
+logger = logging.getLogger(__name__)
+
 from django.db.models import Q, Count
+
 
 from core.utils.weekdays import calculate_business_days, get_business_days_in_range
 # from mint.services.reviews import move_project_to_review
@@ -41,22 +46,12 @@ class LeaveRequestViewSet(ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'leave_type', 'user']
 
-    # def get_queryset(self):
-    #     user = self.request.user
-
-    #     if user.is_supervisor() or user.is_admin():
-    #         return LeaveRequest.objects.all()
-
-    #     return LeaveRequest.objects.filter(user=user)
     def get_queryset(self):
         user = self.request.user
         
-        # For detail actions (approve, reject, cancel) - allow access to all if admin/supervisor
         if self.action in ['approve', 'reject', 'retrieve', 'update', 'partial_update', 'destroy']:
             if user.is_supervisor() or user.is_admin():
                 return LeaveRequest.objects.all()
-        
-        # For list and other actions - only return user's own leaves
         return LeaveRequest.objects.filter(user=user)
 
     def perform_create(self, serializer):
@@ -124,6 +119,7 @@ class LeaveRequestViewSet(ModelViewSet):
 
         # Save with calculated business days
         serializer.save(user=user, num_days=num_days)
+        
 
     def destroy(self, request, *args, **kwargs):
         leave = self.get_object()
@@ -185,6 +181,8 @@ class LeaveRequestViewSet(ModelViewSet):
         leave.approved_by = request.user
         leave.approved_at = timezone.now()
         leave.save()
+        
+
 
         return Response({
             "success": True,
@@ -208,6 +206,8 @@ class LeaveRequestViewSet(ModelViewSet):
         leave.status = LeaveStatus.REJECTED
         leave.rejection_reason = request.data.get("reason", "")
         leave.save()
+
+
 
         return Response({
             "success": True,
@@ -250,6 +250,8 @@ class LeaveRequestViewSet(ModelViewSet):
 
         leave.status = LeaveStatus.CANCELLED
         leave.save()
+
+
 
         return Response({
             "success": True,
@@ -404,49 +406,6 @@ class LeaveRequestViewSet(ModelViewSet):
             "by_status": status_stats
         })
 
-
-
-    # @action(detail=False, methods=['get'])
-    # def by_dates(self, request):
-    #     """
-    #     Get leave requests grouped by business days only.
-    #     Returns a dictionary with dates as keys and leave data as values.
-    #     Only includes business days (Monday-Friday).
-    #     """
-    #     qs = self.get_queryset()
-    #     grouped = defaultdict(list)
-
-    #     for leave in qs:
-    #         if not leave.start_date or not leave.end_date:
-    #             continue
-
-    #         # Get only business days in the leave period
-    #         business_days = get_business_days_in_range(
-    #             leave.start_date.date(),
-    #             leave.end_date.date()
-    #         )
-
-    #         leave_data = LeaveRequestSerializer(leave).data
-
-    #         # Precompute user details once
-    #         user_info = {
-    #             "user_id": str(leave.user.id),
-    #             "username": leave.user.username,
-    #             "full_name": leave.user.full_name,
-    #             "email": leave.user.email,
-    #         }
-
-    #         # Add leave to only business days
-    #         for business_day in business_days:
-    #             grouped[str(business_day)].append({
-    #                 "user": user_info,
-    #                 "leave": leave_data
-    #             })
-                
-    #     return Response({
-    #         "success": True,
-    #         "grouped_by_date": dict(grouped)
-    #     })
 
 
 
