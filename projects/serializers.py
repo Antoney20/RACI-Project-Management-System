@@ -38,11 +38,12 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
 class ProjectListSerializer(serializers.ModelSerializer):
     created_by = UserMinimalSerializer(read_only=True)
     activity_count = serializers.SerializerMethodField()
+    sprint_name = serializers.CharField(source='sprint.name', read_only=True)
     
     class Meta:
         model = Project
         fields = [
-            'id', 'name', 'description', 'sprint', 'status', 'priority', 'deliverables',
+            'id', 'name', 'description', 'sprint', 'sprint_name', 'status', 'priority', 'deliverables',
             'start_date', 'end_date', 'project_link', 'created_by', 
             'activity_count', 'created_at'
         ]

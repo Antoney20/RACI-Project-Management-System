@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from mint.models import ( LeaveAllocation, LeaveRequest, Sprint
+from mint.models import (  Sprint
 # MilestoneComment,  Milestones, Project, ProjectComment, ProjectDocument, ProjectNote, ProjectReview, ProjectReviewComment, PublicHoliday, Task, TaskAttachment, TaskComment, RACIAssignment)
 )
 
@@ -19,193 +19,193 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 
 
-class LeaveRequestSerializer(serializers.ModelSerializer):
-    user_details = serializers.SerializerMethodField(read_only=True)
-    approved_by_details = serializers.SerializerMethodField(read_only=True)
-    supervisors_details = serializers.SerializerMethodField(read_only=True)
-    programme_manager_details = serializers.SerializerMethodField(read_only=True)
-    leave_type_display = serializers.CharField(source='get_leave_type_display', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+# class LeaveRequestSerializer(serializers.ModelSerializer):
+#     user_details = serializers.SerializerMethodField(read_only=True)
+#     approved_by_details = serializers.SerializerMethodField(read_only=True)
+#     supervisors_details = serializers.SerializerMethodField(read_only=True)
+#     programme_manager_details = serializers.SerializerMethodField(read_only=True)
+#     leave_type_display = serializers.CharField(source='get_leave_type_display', read_only=True)
+#     status_display = serializers.CharField(source='get_status_display', read_only=True)
     
-    class Meta:
-        model = LeaveRequest
-        fields = [
-            'id', 'user', 'user_details', 'position', 'leave_type', 'leave_type_display',
-            'leave_type_other', 'status', 'status_display',
-            'start_date', 'end_date', 'num_days', 'reason', 'notes',
-            'supervisors', 'supervisors_details',
-            'approved_by', 'approved_by_details', 'approved_at',
-            'rejection_reason',
-            'programme_manager_approved_by', 'programme_manager_details',
-            'programme_manager_approved', 'programme_manager_approved_at',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = [
-            'id', 'user', 'status', 'approved_by', 'approved_at',
-            'rejection_reason', 'programme_manager_approved_by',
-            'programme_manager_approved_at',
-            'created_at', 'updated_at', 'leave_type_display', 'status_display'
-        ]
+#     class Meta:
+#         model = LeaveRequest
+#         fields = [
+#             'id', 'user', 'user_details', 'position', 'leave_type', 'leave_type_display',
+#             'leave_type_other', 'status', 'status_display',
+#             'start_date', 'end_date', 'num_days', 'reason', 'notes',
+#             'supervisors', 'supervisors_details',
+#             'approved_by', 'approved_by_details', 'approved_at',
+#             'rejection_reason',
+#             'programme_manager_approved_by', 'programme_manager_details',
+#             'programme_manager_approved', 'programme_manager_approved_at',
+#             'created_at', 'updated_at'
+#         ]
+#         read_only_fields = [
+#             'id', 'user', 'status', 'approved_by', 'approved_at',
+#             'rejection_reason', 'programme_manager_approved_by',
+#             'programme_manager_approved_at',
+#             'created_at', 'updated_at', 'leave_type_display', 'status_display'
+#         ]
     
-    def get_user_details(self, obj):
-        return {
-            'id': str(obj.user.id),
-            'username': obj.user.username,
-            'email': obj.user.email,
-            'full_name': obj.user.full_name,
-            'department' : obj.user.department,
-            'role' : obj.user.role,
-            'profile_image': obj.user.profile_image.url if obj.user.profile_image else None,
-        }
+#     def get_user_details(self, obj):
+#         return {
+#             'id': str(obj.user.id),
+#             'username': obj.user.username,
+#             'email': obj.user.email,
+#             'full_name': obj.user.full_name,
+#             'department' : obj.user.department,
+#             'role' : obj.user.role,
+#             'profile_image': obj.user.profile_image.url if obj.user.profile_image else None,
+#         }
     
-    def get_approved_by_details(self, obj):
-        if obj.approved_by:
-            return {
-                'id': str(obj.approved_by.id),
-                'username': obj.approved_by.username,
-                'full_name': obj.approved_by.full_name,
-                'email': obj.approved_by.email
-            }
-        return None
+#     def get_approved_by_details(self, obj):
+#         if obj.approved_by:
+#             return {
+#                 'id': str(obj.approved_by.id),
+#                 'username': obj.approved_by.username,
+#                 'full_name': obj.approved_by.full_name,
+#                 'email': obj.approved_by.email
+#             }
+#         return None
     
-    def get_supervisors_details(self, obj):
-        supervisors = obj.supervisors.all()
-        return [
-            {
-                'id': str(supervisor.id),
-                'username': supervisor.username,
-                'full_name': supervisor.full_name,
-                'email': supervisor.email
-            }
-            for supervisor in supervisors
-        ]
+#     def get_supervisors_details(self, obj):
+#         supervisors = obj.supervisors.all()
+#         return [
+#             {
+#                 'id': str(supervisor.id),
+#                 'username': supervisor.username,
+#                 'full_name': supervisor.full_name,
+#                 'email': supervisor.email
+#             }
+#             for supervisor in supervisors
+#         ]
     
-    def get_programme_manager_details(self, obj):
-        if obj.programme_manager_approved_by:
-            return {
-                'id': str(obj.programme_manager_approved_by.id),
-                'username': obj.programme_manager_approved_by.username,
-                'full_name': obj.programme_manager_approved_by.full_name,
-                'email': obj.programme_manager_approved_by.email
-            }
-        return None
+#     def get_programme_manager_details(self, obj):
+#         if obj.programme_manager_approved_by:
+#             return {
+#                 'id': str(obj.programme_manager_approved_by.id),
+#                 'username': obj.programme_manager_approved_by.username,
+#                 'full_name': obj.programme_manager_approved_by.full_name,
+#                 'email': obj.programme_manager_approved_by.email
+#             }
+#         return None
     
-    def create(self, validated_data):
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+#     def create(self, validated_data):
+#         validated_data['user'] = self.context['request'].user
+#         return super().create(validated_data)
 
-class LeaveApprovalSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=['approve', 'reject'])
-    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+# # class LeaveApprovalSerializer(serializers.Serializer):
+#     action = serializers.ChoiceField(choices=['approve', 'reject'])
+#     rejection_reason = serializers.CharField(required=False, allow_blank=True)
 
-class ProgrammeManagerApprovalSerializer(serializers.Serializer):
-    """Serializer for programme manager approval after leave has been taken"""
-    programme_manager_approved = serializers.BooleanField()
+# class ProgrammeManagerApprovalSerializer(serializers.Serializer):
+#     """Serializer for programme manager approval after leave has been taken"""
+#     programme_manager_approved = serializers.BooleanField()
     
-    def validate_programme_manager_approved(self, value):
-        if not isinstance(value, bool):
-            raise serializers.ValidationError("Must be a boolean value")
-        return value
+#     def validate_programme_manager_approved(self, value):
+#         if not isinstance(value, bool):
+#             raise serializers.ValidationError("Must be a boolean value")
+#         return value
 
-class LeaveAllocationSerializer(serializers.ModelSerializer):
-    user_details = serializers.SerializerMethodField()
-    annual_remaining = serializers.IntegerField(read_only=True)
-    sick_remaining = serializers.IntegerField(read_only=True)
-    maternity_remaining = serializers.IntegerField(read_only=True)
-    paternity_remaining = serializers.IntegerField(read_only=True)
-    compassionate_remaining = serializers.IntegerField(read_only=True)
-    study_remaining = serializers.IntegerField(read_only=True)
-    other_remaining = serializers.IntegerField(read_only=True)
+# class LeaveAllocationSerializer(serializers.ModelSerializer):
+#     user_details = serializers.SerializerMethodField()
+#     annual_remaining = serializers.IntegerField(read_only=True)
+#     sick_remaining = serializers.IntegerField(read_only=True)
+#     maternity_remaining = serializers.IntegerField(read_only=True)
+#     paternity_remaining = serializers.IntegerField(read_only=True)
+#     compassionate_remaining = serializers.IntegerField(read_only=True)
+#     study_remaining = serializers.IntegerField(read_only=True)
+#     other_remaining = serializers.IntegerField(read_only=True)
     
-    class Meta:
-        model = LeaveAllocation
-        fields = [
-            'id', 'user', 'user_details', 'position', 'year',
+#     class Meta:
+#         model = LeaveAllocation
+#         fields = [
+#             'id', 'user', 'user_details', 'position', 'year',
 
-            'annual_leave_days', 'annual_used', 'annual_remaining',
-            'annual_left',
+#             'annual_leave_days', 'annual_used', 'annual_remaining',
+#             'annual_left',
 
-            'sick_leave_days', 'sick_used', 'sick_remaining',
+#             'sick_leave_days', 'sick_used', 'sick_remaining',
 
-            'maternity_leave_days', 'maternity_used', 'maternity_remaining',
+#             'maternity_leave_days', 'maternity_used', 'maternity_remaining',
 
-            'paternity_leave_days', 'paternity_used', 'paternity_remaining',
+#             'paternity_leave_days', 'paternity_used', 'paternity_remaining',
 
-            'compassionate_leave_days', 'compassionate_used', 'compassionate_remaining',
+#             'compassionate_leave_days', 'compassionate_used', 'compassionate_remaining',
 
-            'study_leave_days', 'study_used', 'study_remaining',
+#             'study_leave_days', 'study_used', 'study_remaining',
 
-            'other_leave_days', 'other_used', 'other_remaining',
+#             'other_leave_days', 'other_used', 'other_remaining',
 
-            'carryover_expiry_date',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = [
-            'id', 'annual_remaining', 'sick_remaining', 'maternity_remaining',
-            'paternity_remaining', 'compassionate_remaining', 'study_remaining',
-            'other_remaining', 'created_at', 'updated_at'
-        ]
+#             'carryover_expiry_date',
+#             'created_at', 'updated_at'
+#         ]
+#         read_only_fields = [
+#             'id', 'annual_remaining', 'sick_remaining', 'maternity_remaining',
+#             'paternity_remaining', 'compassionate_remaining', 'study_remaining',
+#             'other_remaining', 'created_at', 'updated_at'
+#         ]
 
-    def get_user_details(self, obj):
-        return {
-            'id': str(obj.user.id),
-            'username': obj.user.username,
-            'email': obj.user.email,
-            'full_name': obj.user.full_name,
-        }
+#     def get_user_details(self, obj):
+#         return {
+#             'id': str(obj.user.id),
+#             'username': obj.user.username,
+#             'email': obj.user.email,
+#             'full_name': obj.user.full_name,
+#         }
 
-    def validate(self, data):
-        annual_used = data.get('annual_used', self.instance.annual_used if self.instance else 0)
-        annual_total = data.get('annual_leave_days', self.instance.annual_leave_days if self.instance else 20)
+#     def validate(self, data):
+#         annual_used = data.get('annual_used', self.instance.annual_used if self.instance else 0)
+#         annual_total = data.get('annual_leave_days', self.instance.annual_leave_days if self.instance else 20)
 
-        if annual_used > annual_total:
-            raise serializers.ValidationError('Annual used cannot exceed allocated days')
+#         if annual_used > annual_total:
+#             raise serializers.ValidationError('Annual used cannot exceed allocated days')
 
-        sick_used = data.get('sick_used', self.instance.sick_used if self.instance else 0)
-        sick_total = data.get('sick_leave_days', self.instance.sick_leave_days if self.instance else 10)
+#         sick_used = data.get('sick_used', self.instance.sick_used if self.instance else 0)
+#         sick_total = data.get('sick_leave_days', self.instance.sick_leave_days if self.instance else 10)
 
-        if sick_used > sick_total:
-            raise serializers.ValidationError('Sick used cannot exceed allocated days')
+#         if sick_used > sick_total:
+#             raise serializers.ValidationError('Sick used cannot exceed allocated days')
 
-        maternity_used = data.get('maternity_used', self.instance.maternity_used if self.instance else 0)
-        maternity_total = data.get('maternity_leave_days', self.instance.maternity_leave_days if self.instance else 0)
+#         maternity_used = data.get('maternity_used', self.instance.maternity_used if self.instance else 0)
+#         maternity_total = data.get('maternity_leave_days', self.instance.maternity_leave_days if self.instance else 0)
 
-        if maternity_used > maternity_total:
-            raise serializers.ValidationError('Maternity used cannot exceed allocated days')
+#         if maternity_used > maternity_total:
+#             raise serializers.ValidationError('Maternity used cannot exceed allocated days')
 
-        paternity_used = data.get('paternity_used', self.instance.paternity_used if self.instance else 0)
-        paternity_total = data.get('paternity_leave_days', self.instance.paternity_leave_days if self.instance else 0)
+#         paternity_used = data.get('paternity_used', self.instance.paternity_used if self.instance else 0)
+#         paternity_total = data.get('paternity_leave_days', self.instance.paternity_leave_days if self.instance else 0)
 
-        if paternity_used > paternity_total:
-            raise serializers.ValidationError('Paternity used cannot exceed allocated days')
+#         if paternity_used > paternity_total:
+#             raise serializers.ValidationError('Paternity used cannot exceed allocated days')
 
-        compassionate_used = data.get('compassionate_used', self.instance.compassionate_used if self.instance else 0)
-        compassionate_total = data.get('compassionate_leave_days', self.instance.compassionate_leave_days if self.instance else 0)
+#         compassionate_used = data.get('compassionate_used', self.instance.compassionate_used if self.instance else 0)
+#         compassionate_total = data.get('compassionate_leave_days', self.instance.compassionate_leave_days if self.instance else 0)
 
-        if compassionate_used > compassionate_total:
-            raise serializers.ValidationError('Compassionate used cannot exceed allocated days')
+#         if compassionate_used > compassionate_total:
+#             raise serializers.ValidationError('Compassionate used cannot exceed allocated days')
 
-        study_used = data.get('study_used', self.instance.study_used if self.instance else 0)
-        study_total = data.get('study_leave_days', self.instance.study_leave_days if self.instance else 0)
+#         study_used = data.get('study_used', self.instance.study_used if self.instance else 0)
+#         study_total = data.get('study_leave_days', self.instance.study_leave_days if self.instance else 0)
 
-        if study_used > study_total:
-            raise serializers.ValidationError('Study used cannot exceed allocated days')
+#         if study_used > study_total:
+#             raise serializers.ValidationError('Study used cannot exceed allocated days')
 
-        other_used = data.get('other_used', self.instance.other_used if self.instance else 0)
-        other_total = data.get('other_leave_days', self.instance.other_leave_days if self.instance else 0)
+#         other_used = data.get('other_used', self.instance.other_used if self.instance else 0)
+#         other_total = data.get('other_leave_days', self.instance.other_leave_days if self.instance else 0)
 
-        if other_used > other_total:
-            raise serializers.ValidationError('Other used cannot exceed allocated days')
+#         if other_used > other_total:
+#             raise serializers.ValidationError('Other used cannot exceed allocated days')
 
-        return data
-    # def validate(self, data):
-    #     annual_used = data.get('annual_used', self.instance.annual_used if self.instance else 0)
-    #     annual_total = data.get('annual_leave_days', self.instance.annual_leave_days if self.instance else 20)
+#         return data
+#     # def validate(self, data):
+#     #     annual_used = data.get('annual_used', self.instance.annual_used if self.instance else 0)
+#     #     annual_total = data.get('annual_leave_days', self.instance.annual_leave_days if self.instance else 20)
 
-    #     if annual_used > annual_total:
-    #         raise serializers.ValidationError('Annual used cannot exceed allocated days')
+#     #     if annual_used > annual_total:
+#     #         raise serializers.ValidationError('Annual used cannot exceed allocated days')
 
-    #     return data
+#     #     return data
 
 class SprintSerializer(serializers.ModelSerializer):
     """Sprint/Timeline serializer"""

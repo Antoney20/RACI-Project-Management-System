@@ -29,8 +29,9 @@ from .models import (LeaveStatus,
                      Sprint,  LeaveRequest, LeaveAllocation, )
 from .serializers import (
     # ProjectCreateSerializer, ProjectDocumentSerializer, ProjectListSerializer, ProjectDetailSerializer, ProjectReviewCommentSerializer, ProjectReviewSerializer, RACIAssignmentSerializer,  TaskListSerializer, ProjectCommentSerializer, ProjectNoteSerializer, MilestoneCommentSerializer,  TaskDetailSerializer, MilestoneSerializer, 
-    LeaveRequestSerializer,
-    LeaveAllocationSerializer,SprintSerializer,
+    # LeaveRequestSerializer,
+    # LeaveAllocationSerializer,
+    SprintSerializer,
    
 )
 from django.utils import timezone
@@ -40,476 +41,476 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-class LeaveRequestViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = LeaveRequestSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['status', 'leave_type', 'user']
+# class LeaveRequestViewSet(ModelViewSet):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = LeaveRequestSerializer
+#     filter_backends = [DjangoFilterBackend]
+#     filterset_fields = ['status', 'leave_type', 'user']
 
-    def get_queryset(self):
-        user = self.request.user
+#     def get_queryset(self):
+#         user = self.request.user
         
-        if self.action in ['approve', 'reject', 'retrieve', 'update', 'partial_update', 'destroy']:
-            if user.is_supervisor() or user.is_admin():
-                return LeaveRequest.objects.all()
-        return LeaveRequest.objects.filter(user=user)
+#         if self.action in ['approve', 'reject', 'retrieve', 'update', 'partial_update', 'destroy']:
+#             if user.is_supervisor() or user.is_admin():
+#                 return LeaveRequest.objects.all()
+#         return LeaveRequest.objects.filter(user=user)
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        start = serializer.validated_data.get("start_date")
-        end = serializer.validated_data.get("end_date")
+#     def perform_create(self, serializer):
+#         user = self.request.user
+#         start = serializer.validated_data.get("start_date")
+#         end = serializer.validated_data.get("end_date")
 
-        if LeaveRequest.objects.filter(user=user, status=LeaveStatus.PENDING).exists():
-            raise serializers.ValidationError({
-                "success": False,
-                "status": "failed",
-                "message": "You already have a leave request pending review."
-            })
+#         if LeaveRequest.objects.filter(user=user, status=LeaveStatus.PENDING).exists():
+#             raise serializers.ValidationError({
+#                 "success": False,
+#                 "status": "failed",
+#                 "message": "You already have a leave request pending review."
+#             })
 
-        approved_leaves = LeaveRequest.objects.filter(
-            user=user,
-            status=LeaveStatus.APPROVED,
-            start_date__lte=end,
-            end_date__gte=start
-        )
+#         approved_leaves = LeaveRequest.objects.filter(
+#             user=user,
+#             status=LeaveStatus.APPROVED,
+#             start_date__lte=end,
+#             end_date__gte=start
+#         )
         
-        if approved_leaves.exists():
-            raise serializers.ValidationError({
-                "success": False,
-                "status": "failed",
-                "message": "You already have an approved leave overlapping these dates."
-            })
+#         if approved_leaves.exists():
+#             raise serializers.ValidationError({
+#                 "success": False,
+#                 "status": "failed",
+#                 "message": "You already have an approved leave overlapping these dates."
+#             })
         
-        # Calculate business days
-        num_days = calculate_business_days(start.date(), end.date())
+#         # Calculate business days
+#         num_days = calculate_business_days(start.date(), end.date())
         
-        current_year = timezone.now().year
+#         current_year = timezone.now().year
 
-        allocation = user.leave_allocations.filter(year=current_year).first()
+#         allocation = user.leave_allocations.filter(year=current_year).first()
 
-        if not allocation:
-            raise serializers.ValidationError({
-                "success": False,
-                "status": "failed",
-                "message": "No leave allocation found for this year."
-            })
+#         if not allocation:
+#             raise serializers.ValidationError({
+#                 "success": False,
+#                 "status": "failed",
+#                 "message": "No leave allocation found for this year."
+#             })
 
-        leave_type = serializer.validated_data.get("leave_type")
+#         leave_type = serializer.validated_data.get("leave_type")
         
-        # Get remaining days based on leave type
-        remaining_days = 0
-        if leave_type == "annual":
-            remaining_days = allocation.annual_remaining
-        elif leave_type == "sick":
-            remaining_days = allocation.sick_remaining
-        elif leave_type == "special":
-            remaining_days = allocation.other_remaining
-        elif leave_type == "unpaid":
-            remaining_days = 999  # Unlimited unpaid leave
+#         # Get remaining days based on leave type
+#         remaining_days = 0
+#         if leave_type == "annual":
+#             remaining_days = allocation.annual_remaining
+#         elif leave_type == "sick":
+#             remaining_days = allocation.sick_remaining
+#         elif leave_type == "special":
+#             remaining_days = allocation.other_remaining
+#         elif leave_type == "unpaid":
+#             remaining_days = 999  # Unlimited unpaid leave
         
-        if num_days > remaining_days:
-            raise serializers.ValidationError({
-                "success": False,
-                "status": "failed",
-                "message": (
-                    f"Insufficient leave balance. You have {remaining_days} days remaining "
-                    f"for {leave_type} leave, but requested {num_days} days."
-                )
-            })
+#         if num_days > remaining_days:
+#             raise serializers.ValidationError({
+#                 "success": False,
+#                 "status": "failed",
+#                 "message": (
+#                     f"Insufficient leave balance. You have {remaining_days} days remaining "
+#                     f"for {leave_type} leave, but requested {num_days} days."
+#                 )
+#             })
 
-        # Save with calculated business days
-        serializer.save(user=user, num_days=num_days)
+#         # Save with calculated business days
+#         serializer.save(user=user, num_days=num_days)
         
 
-    def destroy(self, request, *args, **kwargs):
-        leave = self.get_object()
+#     def destroy(self, request, *args, **kwargs):
+#         leave = self.get_object()
 
-        if leave.status in [LeaveStatus.APPROVED, LeaveStatus.REJECTED]:
-            return Response({
-                "success": False,
-                "message": "You cannot delete approved or rejected leave requests."
-            }, status=403)
+#         if leave.status in [LeaveStatus.APPROVED, LeaveStatus.REJECTED]:
+#             return Response({
+#                 "success": False,
+#                 "message": "You cannot delete approved or rejected leave requests."
+#             }, status=403)
 
-        return super().destroy(request, *args, **kwargs)
+#         return super().destroy(request, *args, **kwargs)
     
     
     
-    def all(self, request):
-        user = self.request.user
+#     def all(self, request):
+#         user = self.request.user
 
-        if user.is_supervisor() or user.is_admin():
-            return LeaveRequest.objects.all()
-        return LeaveRequest.objects.all()
-        # return LeaveRequest.objects.filter(user=user)
+#         if user.is_supervisor() or user.is_admin():
+#             return LeaveRequest.objects.all()
+#         return LeaveRequest.objects.all()
+#         # return LeaveRequest.objects.filter(user=user)
 
-    @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
-        leave = self.get_object()
+#     @action(detail=True, methods=['post'])
+#     def approve(self, request, pk=None):
+#         leave = self.get_object()
 
-        if not (request.user.is_supervisor() or request.user.is_admin()):
-            return Response({"message": "Not allowed : Permission denied to perform this action"}, status=403)
+#         if not (request.user.is_supervisor() or request.user.is_admin()):
+#             return Response({"message": "Not allowed : Permission denied to perform this action"}, status=403)
 
-        if leave.status == LeaveStatus.APPROVED:
-            return Response({
-                "success": False,
-                "message": "This leave request is already approved."
-            }, status=400)
+#         if leave.status == LeaveStatus.APPROVED:
+#             return Response({
+#                 "success": False,
+#                 "message": "This leave request is already approved."
+#             }, status=400)
 
-        # Update leave allocation to deduct days
-        current_year = timezone.now().year
-        allocation = leave.user.leave_allocations.filter(year=current_year).first()
+#         # Update leave allocation to deduct days
+#         current_year = timezone.now().year
+#         allocation = leave.user.leave_allocations.filter(year=current_year).first()
 
-        if not allocation:
-            return Response({
-                "success": False,
-                "message": "No leave allocation found for this year."
-            }, status=400)
+#         if not allocation:
+#             return Response({
+#                 "success": False,
+#                 "message": "No leave allocation found for this year."
+#             }, status=400)
 
-        # Deduct days from allocation based on leave type
-        if leave.leave_type == "annual":
-            allocation.annual_used += leave.num_days
-        elif leave.leave_type == "sick":
-            allocation.sick_used += leave.num_days
-        elif leave.leave_type == "special":
-            allocation.other_used += leave.num_days
-        # unpaid leaves don't affect allocation
+#         # Deduct days from allocation based on leave type
+#         if leave.leave_type == "annual":
+#             allocation.annual_used += leave.num_days
+#         elif leave.leave_type == "sick":
+#             allocation.sick_used += leave.num_days
+#         elif leave.leave_type == "special":
+#             allocation.other_used += leave.num_days
+#         # unpaid leaves don't affect allocation
 
-        allocation.save()
+#         allocation.save()
 
-        # Update leave request status
-        leave.status = LeaveStatus.APPROVED
-        leave.approved_by = request.user
-        leave.approved_at = timezone.now()
-        leave.save()
+#         # Update leave request status
+#         leave.status = LeaveStatus.APPROVED
+#         leave.approved_by = request.user
+#         leave.approved_at = timezone.now()
+#         leave.save()
         
 
 
-        return Response({
-            "success": True,
-            "message": "Leave approved",
-            "data": LeaveRequestSerializer(leave).data
-        })
+#         return Response({
+#             "success": True,
+#             "message": "Leave approved",
+#             "data": LeaveRequestSerializer(leave).data
+#         })
         
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        leave = self.get_object()
+#     @action(detail=True, methods=['post'])
+#     def reject(self, request, pk=None):
+#         leave = self.get_object()
 
-        if not (request.user.is_supervisor() or request.user.is_admin()):
-            return Response({"message": "Not allowed"}, status=403)
+#         if not (request.user.is_supervisor() or request.user.is_admin()):
+#             return Response({"message": "Not allowed"}, status=403)
 
-        if leave.status == LeaveStatus.REJECTED:
-            return Response({
-                "success": False,
-                "message": "This leave request is already rejected."
-            }, status=400)
+#         if leave.status == LeaveStatus.REJECTED:
+#             return Response({
+#                 "success": False,
+#                 "message": "This leave request is already rejected."
+#             }, status=400)
 
-        leave.status = LeaveStatus.REJECTED
-        leave.rejection_reason = request.data.get("reason", "")
-        leave.save()
-
-
-
-        return Response({
-            "success": True,
-            "message": "Leave rejected",
-            "data": LeaveRequestSerializer(leave).data
-        })
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        """Cancel a leave request and restore days if it was approved"""
-        leave = self.get_object()
-
-        if leave.user != request.user and not (request.user.is_supervisor() or request.user.is_admin()):
-            return Response({
-                "success": False,
-                "message": "You can only cancel your own leave."
-            }, status=403)
-
-        if leave.status == LeaveStatus.CANCELLED:
-            return Response({
-                "success": False,
-                "message": "This leave request is already cancelled."
-            }, status=400)
-
-        # If cancelling an approved leave, restore the days
-        if leave.status == LeaveStatus.APPROVED:
-            current_year = timezone.now().year
-            allocation = leave.user.leave_allocations.filter(year=current_year).first()
-
-            if allocation:
-                # Restore days to allocation based on leave type
-                if leave.leave_type == "annual":
-                    allocation.annual_used = max(0, allocation.annual_used - leave.num_days)
-                elif leave.leave_type == "sick":
-                    allocation.sick_used = max(0, allocation.sick_used - leave.num_days)
-                elif leave.leave_type == "special":
-                    allocation.other_used = max(0, allocation.other_used - leave.num_days)
-
-                allocation.save()
-
-        leave.status = LeaveStatus.CANCELLED
-        leave.save()
+#         leave.status = LeaveStatus.REJECTED
+#         leave.rejection_reason = request.data.get("reason", "")
+#         leave.save()
 
 
 
-        return Response({
-            "success": True,
-            "message": "Leave successfully cancelled",
-            "data": LeaveRequestSerializer(leave).data
-        })
+#         return Response({
+#             "success": True,
+#             "message": "Leave rejected",
+#             "data": LeaveRequestSerializer(leave).data
+#         })
 
-    @action(detail=False, methods=['get'])
-    def currently_on_leave(self, request):
-        """
-        Get all users currently on approved leave today.
-        Counts only business days.
-        """
-        now = timezone.now().date()
-        qs = self.get_queryset().filter(
-            status=LeaveStatus.APPROVED,
-            start_date__lte=now,
-            end_date__gte=now
-        )
+#     @action(detail=True, methods=['post'])
+#     def cancel(self, request, pk=None):
+#         """Cancel a leave request and restore days if it was approved"""
+#         leave = self.get_object()
+
+#         if leave.user != request.user and not (request.user.is_supervisor() or request.user.is_admin()):
+#             return Response({
+#                 "success": False,
+#                 "message": "You can only cancel your own leave."
+#             }, status=403)
+
+#         if leave.status == LeaveStatus.CANCELLED:
+#             return Response({
+#                 "success": False,
+#                 "message": "This leave request is already cancelled."
+#             }, status=400)
+
+#         # If cancelling an approved leave, restore the days
+#         if leave.status == LeaveStatus.APPROVED:
+#             current_year = timezone.now().year
+#             allocation = leave.user.leave_allocations.filter(year=current_year).first()
+
+#             if allocation:
+#                 # Restore days to allocation based on leave type
+#                 if leave.leave_type == "annual":
+#                     allocation.annual_used = max(0, allocation.annual_used - leave.num_days)
+#                 elif leave.leave_type == "sick":
+#                     allocation.sick_used = max(0, allocation.sick_used - leave.num_days)
+#                 elif leave.leave_type == "special":
+#                     allocation.other_used = max(0, allocation.other_used - leave.num_days)
+
+#                 allocation.save()
+
+#         leave.status = LeaveStatus.CANCELLED
+#         leave.save()
+
+
+
+#         return Response({
+#             "success": True,
+#             "message": "Leave successfully cancelled",
+#             "data": LeaveRequestSerializer(leave).data
+#         })
+
+#     @action(detail=False, methods=['get'])
+#     def currently_on_leave(self, request):
+#         """
+#         Get all users currently on approved leave today.
+#         Counts only business days.
+#         """
+#         now = timezone.now().date()
+#         qs = self.get_queryset().filter(
+#             status=LeaveStatus.APPROVED,
+#             start_date__lte=now,
+#             end_date__gte=now
+#         )
         
-        # Filter to only include business days
-        current_leave = []
-        for leave in qs:
-            if leave.start_date.date().weekday() < 5 or leave.end_date.date().weekday() < 5:
-                # Check if today is a business day within the leave period
-                if now.weekday() < 5:  # Today is a business day
-                    current_leave.append(leave)
+#         # Filter to only include business days
+#         current_leave = []
+#         for leave in qs:
+#             if leave.start_date.date().weekday() < 5 or leave.end_date.date().weekday() < 5:
+#                 # Check if today is a business day within the leave period
+#                 if now.weekday() < 5:  # Today is a business day
+#                     current_leave.append(leave)
         
-        return Response(LeaveRequestSerializer(current_leave, many=True).data)
+#         return Response(LeaveRequestSerializer(current_leave, many=True).data)
 
-    @action(detail=False, methods=['get'])
-    def all(self, request):
-        """
-        Get all leave requests for the current user or all if supervisor/admin.
-        """
-        user = request.user
-        if user.is_supervisor() or user.is_admin():
-            qs = LeaveRequest.objects.all()
-        else:
-            qs = LeaveRequest.objects.filter(user=user)
+#     @action(detail=False, methods=['get'])
+#     def all(self, request):
+#         """
+#         Get all leave requests for the current user or all if supervisor/admin.
+#         """
+#         user = request.user
+#         if user.is_supervisor() or user.is_admin():
+#             qs = LeaveRequest.objects.all()
+#         else:
+#             qs = LeaveRequest.objects.filter(user=user)
 
-        return Response(LeaveRequestSerializer(qs, many=True).data)
-
-
-    @action(detail=False, methods=['get'])
-    def leave_stats(self, request):
-        """
-        Team leave analytics.
-        - Today stats
-        - Grouped by business day
-        - By leave type
-        - By status
-        Supervisor/Admin only.
-        """
-        user = request.user
-
-        if not (user.is_supervisor() or user.is_admin()):
-            return Response(
-                {"success": False, "message": "Permission denied"},
-                status=403
-            )
-
-        today = timezone.now().date()
-
-        # ---- Base data ----
-        all_leaves = LeaveRequest.objects.all()
-        users_qs = User.objects.filter(is_active=True)
-        total_users = users_qs.count()
-
-        # ---- Approved leaves today ----
-        approved_today = all_leaves.filter(
-            status=LeaveStatus.APPROVED,
-            start_date__lte=today,
-            end_date__gte=today
-        )
-
-        today_on_leave = []
-        for leave in approved_today:
-            if today.weekday() < 5:
-                today_on_leave.append({
-                    "user": {
-                        "id": str(leave.user.id),
-                        "full_name": leave.user.full_name,
-                        "email": leave.user.email
-                    },
-                    "leave_type": leave.leave_type,
-                    "start_date": leave.start_date,
-                    "end_date": leave.end_date
-                })
-
-        on_leave_today_count = len(today_on_leave)
-
-        # ---- Grouped by business day ----
-        grouped_by_day = defaultdict(lambda: {
-            "count": 0,
-            "users": []
-        })
-
-        approved_leaves = all_leaves.filter(status=LeaveStatus.APPROVED)
-
-        for leave in approved_leaves:
-            business_days = get_business_days_in_range(
-                leave.start_date.date(),
-                leave.end_date.date()
-            )
-
-            for day in business_days:
-                grouped_by_day[str(day)]["count"] += 1
-                grouped_by_day[str(day)]["users"].append({
-                    "user_id": str(leave.user.id),
-                    "full_name": leave.user.full_name,
-                    "leave_type": leave.leave_type
-                })
-
-        # ---- By leave type (approved only) ----
-        by_leave_type = (
-            approved_leaves
-            .values("leave_type")
-            .annotate(count=Count("id"))
-        )
-
-        leave_type_stats = {
-            item["leave_type"]: item["count"]
-            for item in by_leave_type
-        }
-
-        # ---- By status (all) ----
-        by_status = (
-            all_leaves
-            .values("status")
-            .annotate(count=Count("id"))
-        )
-
-        status_stats = {
-            item["status"]: item["count"]
-            for item in by_status
-        }
-
-        return Response({
-            "success": True,
-            "today": {
-                "date": today,
-                "counts": {
-                    "on_leave": on_leave_today_count,
-                    "available": max(total_users - on_leave_today_count, 0),
-                    "total_users": total_users
-                },
-                "on_leave": today_on_leave
-            },
-            "by_day": dict(grouped_by_day),
-            "by_leave_type": leave_type_stats,
-            "by_status": status_stats
-        })
+#         return Response(LeaveRequestSerializer(qs, many=True).data)
 
 
+#     @action(detail=False, methods=['get'])
+#     def leave_stats(self, request):
+#         """
+#         Team leave analytics.
+#         - Today stats
+#         - Grouped by business day
+#         - By leave type
+#         - By status
+#         Supervisor/Admin only.
+#         """
+#         user = request.user
+
+#         if not (user.is_supervisor() or user.is_admin()):
+#             return Response(
+#                 {"success": False, "message": "Permission denied"},
+#                 status=403
+#             )
+
+#         today = timezone.now().date()
+
+#         # ---- Base data ----
+#         all_leaves = LeaveRequest.objects.all()
+#         users_qs = User.objects.filter(is_active=True)
+#         total_users = users_qs.count()
+
+#         # ---- Approved leaves today ----
+#         approved_today = all_leaves.filter(
+#             status=LeaveStatus.APPROVED,
+#             start_date__lte=today,
+#             end_date__gte=today
+#         )
+
+#         today_on_leave = []
+#         for leave in approved_today:
+#             if today.weekday() < 5:
+#                 today_on_leave.append({
+#                     "user": {
+#                         "id": str(leave.user.id),
+#                         "full_name": leave.user.full_name,
+#                         "email": leave.user.email
+#                     },
+#                     "leave_type": leave.leave_type,
+#                     "start_date": leave.start_date,
+#                     "end_date": leave.end_date
+#                 })
+
+#         on_leave_today_count = len(today_on_leave)
+
+#         # ---- Grouped by business day ----
+#         grouped_by_day = defaultdict(lambda: {
+#             "count": 0,
+#             "users": []
+#         })
+
+#         approved_leaves = all_leaves.filter(status=LeaveStatus.APPROVED)
+
+#         for leave in approved_leaves:
+#             business_days = get_business_days_in_range(
+#                 leave.start_date.date(),
+#                 leave.end_date.date()
+#             )
+
+#             for day in business_days:
+#                 grouped_by_day[str(day)]["count"] += 1
+#                 grouped_by_day[str(day)]["users"].append({
+#                     "user_id": str(leave.user.id),
+#                     "full_name": leave.user.full_name,
+#                     "leave_type": leave.leave_type
+#                 })
+
+#         # ---- By leave type (approved only) ----
+#         by_leave_type = (
+#             approved_leaves
+#             .values("leave_type")
+#             .annotate(count=Count("id"))
+#         )
+
+#         leave_type_stats = {
+#             item["leave_type"]: item["count"]
+#             for item in by_leave_type
+#         }
+
+#         # ---- By status (all) ----
+#         by_status = (
+#             all_leaves
+#             .values("status")
+#             .annotate(count=Count("id"))
+#         )
+
+#         status_stats = {
+#             item["status"]: item["count"]
+#             for item in by_status
+#         }
+
+#         return Response({
+#             "success": True,
+#             "today": {
+#                 "date": today,
+#                 "counts": {
+#                     "on_leave": on_leave_today_count,
+#                     "available": max(total_users - on_leave_today_count, 0),
+#                     "total_users": total_users
+#                 },
+#                 "on_leave": today_on_leave
+#             },
+#             "by_day": dict(grouped_by_day),
+#             "by_leave_type": leave_type_stats,
+#             "by_status": status_stats
+#         })
 
 
-class LeaveAllocationViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = LeaveAllocationSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['year', 'user']
 
-    def get_queryset(self):
-        user = self.request.user
 
-        if user.is_admin() or user.is_office_admin():
-            return LeaveAllocation.objects.all()
+# class LeaveAllocationViewSet(ModelViewSet):
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = LeaveAllocationSerializer
+#     filter_backends = [DjangoFilterBackend]
+#     filterset_fields = ['year', 'user']
 
-        if user.is_supervisor() or user.is_staff_member():
-            return LeaveAllocation.objects.filter(user=user)
+#     def get_queryset(self):
+#         user = self.request.user
 
-        return LeaveAllocation.objects.none()
+#         if user.is_admin() or user.is_office_admin():
+#             return LeaveAllocation.objects.all()
 
-    def get_object(self):
-        obj = super().get_object()
-        user = self.request.user
+#         if user.is_supervisor() or user.is_staff_member():
+#             return LeaveAllocation.objects.filter(user=user)
 
-        if user.is_admin() or user.is_office_admin():
-            return obj
+#         return LeaveAllocation.objects.none()
 
-        if obj.user == user:
-            return obj
+#     def get_object(self):
+#         obj = super().get_object()
+#         user = self.request.user
 
-        raise PermissionDenied("You do not have permission to view this allocation.")
+#         if user.is_admin() or user.is_office_admin():
+#             return obj
 
-    def permission_denied_message(self):
-        return Response(
-            {"success": False, "message": "You do not have permission to modify this allocation."},
-            status=403
-        )
+#         if obj.user == user:
+#             return obj
 
-    def perform_create(self, serializer):
-        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
-            raise PermissionDenied("You do not have permission to create leave allocations.")
-        serializer.save()
+#         raise PermissionDenied("You do not have permission to view this allocation.")
 
-    def perform_update(self, serializer):
-        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
-            raise PermissionDenied("You do not have permission to update this allocation.")
-        serializer.save()
+#     def permission_denied_message(self):
+#         return Response(
+#             {"success": False, "message": "You do not have permission to modify this allocation."},
+#             status=403
+#         )
 
-    def perform_destroy(self, instance):
-        if not self.request.user.is_admin():
-            raise PermissionDenied("Only admin can delete allocations.")
-        instance.delete()
+#     def perform_create(self, serializer):
+#         if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+#             raise PermissionDenied("You do not have permission to create leave allocations.")
+#         serializer.save()
 
-    @action(detail=False, methods=['get'])
-    def current_year(self, request):
-        year = timezone.now().year
-        allocations = self.get_queryset().filter(year=year)
-        return Response({
-            'success': True,
-            'year': year,
-            'data': self.get_serializer(allocations, many=True).data
-        })
+#     def perform_update(self, serializer):
+#         if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+#             raise PermissionDenied("You do not have permission to update this allocation.")
+#         serializer.save()
 
-    def update(self, request, *args, **kwargs):
-        """Override update to give consistent API responses"""
-        try:
-            partial = kwargs.pop('partial', False)
-            instance = self.get_object()   # This will trigger permission_denied correctly
+#     def perform_destroy(self, instance):
+#         if not self.request.user.is_admin():
+#             raise PermissionDenied("Only admin can delete allocations.")
+#         instance.delete()
 
-            serializer = self.get_serializer(
-                instance,
-                data=request.data,
-                partial=partial
-            )
-            serializer.is_valid(raise_exception=True)
+#     @action(detail=False, methods=['get'])
+#     def current_year(self, request):
+#         year = timezone.now().year
+#         allocations = self.get_queryset().filter(year=year)
+#         return Response({
+#             'success': True,
+#             'year': year,
+#             'data': self.get_serializer(allocations, many=True).data
+#         })
 
-            self.perform_update(serializer)
+#     def update(self, request, *args, **kwargs):
+#         """Override update to give consistent API responses"""
+#         try:
+#             partial = kwargs.pop('partial', False)
+#             instance = self.get_object()   # This will trigger permission_denied correctly
 
-            return Response({
-                "success": True,
-                "message": "Leave allocation updated successfully.",
-                "data": serializer.data
-            }, status=200)
+#             serializer = self.get_serializer(
+#                 instance,
+#                 data=request.data,
+#                 partial=partial
+#             )
+#             serializer.is_valid(raise_exception=True)
 
-        except PermissionDenied:
-            return Response({
-                "success": False,
-                "message": "You do not have permission to modify this leave allocation.",
-                "errors": None
-            }, status=403)
+#             self.perform_update(serializer)
 
-        except ValidationError as e:
-            return Response({
-                "success": False,
-                "message": "Validation failed.",
-                "errors": e.detail
-            }, status=400)
+#             return Response({
+#                 "success": True,
+#                 "message": "Leave allocation updated successfully.",
+#                 "data": serializer.data
+#             }, status=200)
 
-        except Exception as e:
-            return Response({
-                "success": False,
-                "message": "Something went wrong while updating leave allocation.",
-                "errors": str(e)
-            }, status=500)
+#         except PermissionDenied:
+#             return Response({
+#                 "success": False,
+#                 "message": "You do not have permission to modify this leave allocation.",
+#                 "errors": None
+#             }, status=403)
+
+#         except ValidationError as e:
+#             return Response({
+#                 "success": False,
+#                 "message": "Validation failed.",
+#                 "errors": e.detail
+#             }, status=400)
+
+#         except Exception as e:
+#             return Response({
+#                 "success": False,
+#                 "message": "Something went wrong while updating leave allocation.",
+#                 "errors": str(e)
+#             }, status=500)
 
 
 
