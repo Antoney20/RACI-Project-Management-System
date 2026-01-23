@@ -7,34 +7,28 @@ on:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
+  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
         with:
-          python-version: 3.11
-          cache: 'pip'
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: latest
-          virtualenvs-create: true
-          virtualenvs-in-project: true
+        run: pip install poetry
 
       - name: Install dependencies
-        run: poetry install --sync
+        run: poetry install
 
-      - name: Run semantic-release
+      - name: Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: poetry run semantic-release publish
