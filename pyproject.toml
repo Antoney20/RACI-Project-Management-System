@@ -39,7 +39,7 @@ pytest-cov = "^5.0"
 pre-commit = "^3.8"
 django-debug-toolbar = "^4.4"
 ipython = "^8.27"
-python-semantic-release = "^10.5.2"
+python-semantic-release = "^10.5.3"
 
 [tool.poetry.extras]
 api = ["djangorestframework", "drf-spectacular"]
