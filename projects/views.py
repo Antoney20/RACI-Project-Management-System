@@ -4,13 +4,14 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
+from django.db import transaction
 
-from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument
+from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from .serializers import (
     ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
     ActivityCreateSerializer, ActivityListSerializer, ActivityDetailSerializer,
     MilestoneSerializer, ActivityCommentSerializer, MilestoneCommentSerializer,
-    ActivityDocumentSerializer
+    ActivityDocumentSerializer, ReorderSerializer, UserActivityPrioritySerializer
 )
 
 # class ProjectViewSet(viewsets.ModelViewSet):
@@ -385,14 +386,19 @@ class ActivityViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+
     @action(detail=True, methods=['post'], url_path='mark-complete')
     def mark_complete(self, request, pk=None):
-        """Mark activity as completed - only Responsible or Accountable users"""
+        """
+        Mark activity as completed and trigger supervisor review.
+        Only Responsible, Accountable, Admin, or Supervisor can mark complete.
+        """
         activity = self.get_object()
         user = request.user
         
-        # Check if user is Responsible or Accountable for this activity
-        if not (activity.responsible == user or activity.accountable == user or user.is_admin() or user.is_supervisor()):
+        # Check permission: Responsible, Accountable, Admin, or Supervisor
+        if not (activity.responsible == user or activity.accountable == user or 
+                user.is_admin() or user.is_supervisor()):
             return Response(
                 {
                     "success": False,
@@ -401,14 +407,113 @@ class ActivityViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Mark activity as completed
         activity.status = 'completed'
         activity.save()
         
+        # Create or update supervisor review
+        self._create_supervisor_review(activity)
+        
         return Response({
             'success': True,
-            'message': 'Activity marked as complete',
-            'is_complete': activity.is_complete
+            'message': 'Activity marked as complete. Supervisor review initiated.',
+            'is_complete': activity.is_complete,
+            'status': activity.status
         })
+
+    @action(detail=True, methods=['post'], url_path='reorder')
+    def reorder(self, request, pk=None):
+        """
+        Reorder activity within project. Efficient bulk update approach.
+        Expects: {"new_order": <integer>}
+        """
+        activity = self.get_object()
+        user = request.user
+        
+        # Check permission: only Admin or Supervisor can reorder
+        if not (user.is_admin() or user.is_supervisor()):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Only Admins and Supervisors can reorder activities."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        new_order = request.data.get('new_order')
+        
+        if new_order is None or not isinstance(new_order, int) or new_order < 1:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Valid 'new_order' (positive integer) is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get current order
+        old_order = activity.order
+        
+        # No change needed
+        if old_order == new_order:
+            return Response({
+                'success': True,
+                'message': 'Activity order unchanged.',
+                'order': activity.order
+            })
+        
+        with transaction.atomic():
+            if new_order < old_order:
+                Activity.objects.filter(
+                    project=activity.project,
+                    order__gte=new_order,
+                    order__lt=old_order
+                ).update(order=F('order') + 1)
+            else:
+                Activity.objects.filter(
+                    project=activity.project,
+                    order__gt=old_order,
+                    order__lte=new_order
+                ).update(order=F('order') - 1)
+            
+            # Update current activity order
+            activity.order = new_order
+            activity.save(update_fields=['order'])
+        
+        return Response({
+            'success': True,
+            'message': f'Activity reordered to position {new_order}.',
+            'old_order': old_order,
+            'new_order': new_order
+        })
+
+    def _create_supervisor_review(self, activity):
+        """
+        Create supervisor review when activity is marked complete.
+        Uses get_or_create to avoid duplicates.
+        """
+        # Get accountable user as default supervisor
+        supervisor = activity.accountable
+        
+        review, created = SupervisorReview.objects.get_or_create(
+            activity=activity,
+            defaults={
+                'supervisor': supervisor,
+                'status': 'not_started'
+            }
+        )
+        
+        # If review exists but was previously completed/rejected, reset it
+        if not created and review.is_complete:
+            review.status = 'not_started'
+            review.started_at = None
+            review.completed_at = None
+            review.is_complete = False
+            review.notes = ''
+            review.save()
+        
+        return review
+
 
     @action(detail=True, methods=['get', 'post'])
     def comments(self, request, pk=None):
@@ -491,6 +596,63 @@ class ActivityViewSet(viewsets.ModelViewSet):
             'priority': activity.priority,
             'is_complete': activity.is_complete
         })
+
+
+
+class UserActivityPriorityViewSet(viewsets.ModelViewSet):
+    """User activity priority management"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserActivityPrioritySerializer
+    
+    def get_queryset(self):
+        return UserActivityPriority.objects.filter(
+            user=self.request.user
+        ).select_related('activity', 'activity__project').order_by('priority_order')
+    
+    @action(detail=False, methods=['post'], url_path='reorder')
+    def reorder(self, request):
+        """Reorder activity: POST {"activity_id": "uuid", "new_order": 1}"""
+        serializer = ReorderSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"success": False, "errors": serializer.errors}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        activity_id = serializer.validated_data['activity_id']
+        new_order = serializer.validated_data['new_order']
+        
+        with transaction.atomic():
+            # Get or create priority
+            priority, created = UserActivityPriority.objects.get_or_create(
+                user=request.user, activity_id=activity_id,
+                defaults={'priority_order': new_order}
+            )
+            
+            if not created:
+                old_order = priority.priority_order
+                if old_order != new_order:
+                    # Shift other priorities
+                    if new_order < old_order:
+                        UserActivityPriority.objects.filter(
+                            user=request.user, priority_order__gte=new_order, 
+                            priority_order__lt=old_order
+                        ).update(priority_order=F('priority_order') + 1)
+                    else:
+                        UserActivityPriority.objects.filter(
+                            user=request.user, priority_order__gt=old_order, 
+                            priority_order__lte=new_order
+                        ).update(priority_order=F('priority_order') - 1)
+                    
+                    priority.priority_order = new_order
+                    priority.save()
+        
+        return Response({
+            "success": True,
+            "message": f"Reordered to position {new_order}",
+            "priorities": UserActivityPrioritySerializer(
+                self.get_queryset(), many=True
+            ).data
+        })
+
 
 class MilestoneViewSet(viewsets.ModelViewSet):
     """

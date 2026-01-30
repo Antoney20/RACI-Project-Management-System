@@ -11,6 +11,8 @@ router.register(r'projects', views.ProjectViewSet, basename='project')
 router.register(r'activities', views.ActivityViewSet, basename='activity')
 router.register(r'milestones', views.MilestoneViewSet, basename='milestone')
 router.register(r'documents', views.ActivityDocumentViewSet, basename='document')
+router.register(r'user-priorities', views.UserActivityPriorityViewSet, basename='user-priority')
+
 
 urlpatterns = [
     path('v2/', include(router.urls)),

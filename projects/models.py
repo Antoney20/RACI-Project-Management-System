@@ -113,6 +113,11 @@ class Activity(models.Model):
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium')
     is_complete = models.BooleanField(default=False, editable=False)
     deadline = models.DateTimeField(null=True, blank=True)
+    order = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text="Display order within the project"
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -121,17 +126,21 @@ class Activity(models.Model):
         db_table = "raci_activity"
         verbose_name = "RACI Activity"
         verbose_name_plural = "RACI Activities"
-        ordering = ["-created_at"]
+        ordering = ['project', 'order', '-created_at']
         indexes = [
             models.Index(fields=["project", "status"]),
             models.Index(fields=["responsible"]),
             models.Index(fields=["accountable"]),
+            models.Index(fields=["project", "order"]),
+        ]
+        
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'order'],
+                name='unique_activity_order_per_project'
+            )
         ]
 
-    def clean(self):
-        if self.deadline and self.project.end_date:
-            if self.deadline > self.project.end_date:
-                raise ValidationError("Activity deadline cannot be after project end date")
 
     def save(self, *args, **kwargs):
         if self.status == 'completed':
@@ -142,10 +151,40 @@ class Activity(models.Model):
             self.is_complete = False
             self.completed_at = None
 
+        # Auto-assign order on first save if missing
+        if self.pk is None and self.order == 0:
+            max_order = Activity.objects.filter(project=self.project).aggregate(
+                models.Max('order')
+            )['order__max'] or 0
+            self.order = max_order + 1
+
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.project.name} - {self.name}"
+        return f"{self.project.name} - {self.name} (order {self.order})"
+    
+    
+    
+
+class UserActivityPriority(models.Model):
+    """User's personal priority ordering for activities"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="activity_priorities")
+    activity = models.ForeignKey(Activity, on_delete=models.CASCADE, related_name="user_priorities")
+    priority_order = models.PositiveIntegerField(default=0, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_activity_priority"
+        ordering = ['user', 'priority_order']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'activity'], name='unique_user_activity'),
+            models.UniqueConstraint(fields=['user', 'priority_order'], name='unique_user_order')
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.activity.name} (#{self.priority_order})"
 
 
 class Milestone(models.Model):
@@ -287,3 +326,92 @@ class ActivityDocument(models.Model):
 
     def __str__(self):
         return f"{self.title or 'Untitled'} - {self.activity.name}"
+
+class SupervisorReview(models.Model):
+    REVIEW_STATUS_CHOICES = [
+        ('not_started', 'Not Started'),
+        ('started',     'Review Started'),
+        ('completed',   'Review Completed'),
+        ('rejected',    'Rejected / Needs Revision'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    activity = models.OneToOneField(
+        Activity,
+        on_delete=models.CASCADE, 
+        related_name='supervisor_review',
+        help_text="The activity being reviewed (typically manuscript type)"
+    )
+    
+    status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS_CHOICES,
+        default='not_started',
+        verbose_name="Review Status"
+    )
+    
+    started_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Review Started At"
+    )
+    
+    completed_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Review Completed / Closed At"
+    )
+    
+    supervisor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='supervised_reviews',
+        verbose_name="Reviewing Supervisor"
+    )
+    
+    notes = models.TextField(
+        blank=True,
+        verbose_name="Supervisor Notes / Feedback"
+    )
+    
+    is_complete = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text="True when review is completed or rejected"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "raci_supervisor_review"
+        verbose_name = "Supervisor Review"
+        verbose_name_plural = "Supervisor Reviews"
+        ordering = ['-completed_at', '-started_at']
+        indexes = [
+            models.Index(fields=['activity', 'status']),
+            models.Index(fields=['supervisor']),
+        ]
+
+    def __str__(self):
+        return f"Review for {self.activity} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Auto-set dates and is_complete
+        if self.status in ('started', 'completed', 'rejected'):
+            if self.status == 'started' and not self.started_at:
+                self.started_at = timezone.now()
+            if self.status in ('completed', 'rejected') and not self.completed_at:
+                self.completed_at = timezone.now()
+                self.is_complete = True
+
+
+        super().save(*args, **kwargs)
+        
+        
+        
+        
+        
+        

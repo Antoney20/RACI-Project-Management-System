@@ -557,7 +557,7 @@ class SprintViewSet(ModelViewSet):
         serializer.save()
     
     def perform_destroy(self, instance):
-        if not (self.request.user.is_admin() or self.request.user.is_office_admin()):
+        if not (self.request.user.is_admin()):
             raise PermissionDenied("Only admins can delete sprints.")
         instance.delete()
     

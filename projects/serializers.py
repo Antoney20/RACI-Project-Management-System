@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument
+from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, UserActivityPriority
 from mint.models import Sprint
 
 User = get_user_model()
@@ -56,6 +56,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
 class ProjectDetailSerializer(serializers.ModelSerializer):
     created_by = UserMinimalSerializer(read_only=True)
     
+    
     class Meta:
         model = Project
         fields = [
@@ -67,6 +68,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
 
 # ACTIVITY SERIALIZERS
+
 class ActivityCreateSerializer(serializers.ModelSerializer):
     project_id = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(),
@@ -101,16 +103,16 @@ class ActivityCreateSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    order = serializers.IntegerField(read_only=False, required=False)
 
     class Meta:
         model = Activity
         fields = [
-            'id', 'project_id', 'name', 'description', 'responsible_id',
-            'accountable_id', 'consulted_ids', 'informed_ids', 'status',
-            'priority', 'deadline', 'created_at'
+            'id', 'project_id', 'name', 'description', 'type', 'order',         
+            'responsible_id', 'accountable_id', 'consulted_ids', 'informed_ids',
+            'status', 'priority', 'deadline', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
-
 
 class ActivityListSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
@@ -119,18 +121,20 @@ class ActivityListSerializer(serializers.ModelSerializer):
     consulted = UserMinimalSerializer(read_only=True, many=True)
     accountable = UserMinimalSerializer(read_only=True)
     milestone_count = serializers.SerializerMethodField()
-    
+    type = serializers.CharField(read_only=True)  
+    order = serializers.IntegerField(read_only=False, required=False)                   
+
     class Meta:
         model = Activity
         fields = [
-            'id', 'project', 'project_name', 'name', 'responsible', 'accountable', 'consulted','informed',
-            'status', 'priority', 'is_complete', 'deadline', 'milestone_count', 'created_at'
+            'id', 'project', 'project_name', 'name', 'responsible', 'accountable',
+            'consulted', 'informed', 'status', 'priority', 'is_complete',
+            'deadline', 'milestone_count', 'created_at', 'type'  , 'order'       
         ]
         read_only_fields = ['id', 'is_complete', 'created_at']
-    
+
     def get_milestone_count(self, obj):
         return obj.milestones.count()
-
 
 class ActivityDetailSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
@@ -138,17 +142,36 @@ class ActivityDetailSerializer(serializers.ModelSerializer):
     accountable = UserMinimalSerializer(read_only=True)
     consulted = UserMinimalSerializer(many=True, read_only=True)
     informed = UserMinimalSerializer(many=True, read_only=True)
-    
+    type = serializers.CharField(read_only=True)   
+    order = serializers.IntegerField(read_only=False, required=False)                  
+
     class Meta:
         model = Activity
         fields = [
-            'id', 'project', 'project_name', 'name', 'description',
+            'id', 'project', 'project_name', 'name', 'description', 'type',  'order',    
             'responsible', 'accountable', 'consulted', 'informed',
             'status', 'priority', 'is_complete', 'deadline',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'is_complete', 'created_at', 'updated_at']
 
+
+
+
+class UserActivityPrioritySerializer(serializers.ModelSerializer):
+    activity_name = serializers.CharField(source='activity.name', read_only=True)
+    project_name = serializers.CharField(source='activity.project.name', read_only=True)
+    
+    class Meta:
+        model = UserActivityPriority
+        fields = ['id', 'activity', 'activity_name', 'project_name', 'priority_order', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class ReorderSerializer(serializers.Serializer):
+    """Reorder request: {"activity_id": "uuid", "new_order": 1}"""
+    activity_id = serializers.UUIDField(required=True)
+    new_order = serializers.IntegerField(min_value=1, required=True)
 
 # MILESTONE SERIALIZERS
 class MilestoneSerializer(serializers.ModelSerializer):
