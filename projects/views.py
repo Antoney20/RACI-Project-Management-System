@@ -2,197 +2,21 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q
+from django.db.models import Q, F
 from django.db import transaction
+from rest_framework.exceptions import PermissionDenied, ValidationError
+
+from projects.utils.roles import is_admin, is_supervisor
 
 from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from .serializers import (
     ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
     ActivityCreateSerializer, ActivityListSerializer, ActivityDetailSerializer,
     MilestoneSerializer, ActivityCommentSerializer, MilestoneCommentSerializer,
-    ActivityDocumentSerializer, ReorderSerializer, UserActivityPrioritySerializer
+    ActivityDocumentSerializer, ReorderSerializer, SupervisorReviewSerializer, UserActivityPrioritySerializer
 )
-
-# class ProjectViewSet(viewsets.ModelViewSet):
-#     """
-#     Project CRUD operations with role-based access.
-#     - Users see projects where they have activities (via RACI roles)
-#     - Staff can see all projects
-#     """
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_fields = ['status', 'priority']
-#     search_fields = ['name', 'description']
-#     ordering_fields = ['created_at', 'start_date']
-#     ordering = ['-created_at']
-
-#     def get_queryset(self):
-#         """Filter projects based on user permissions"""
-#         user = self.request.user
-        
-#         if user.is_staff:
-#             return Project.objects.all().select_related('created_by', 'sprint')
-        
-#         # Users see projects where they have activities (through any RACI role)
-#         return Project.objects.filter(
-#             Q(activities__responsible=user) |
-#             Q(activities__accountable=user) |
-#             Q(activities__consulted=user) |
-#             Q(activities__informed=user)
-#         ).distinct().select_related('created_by', 'sprint')
-
-#     def get_serializer_class(self):
-#         """Return appropriate serializer based on action"""
-#         if self.action == 'create':
-#             return ProjectCreateSerializer
-#         if self.action == 'retrieve':
-#             return ProjectDetailSerializer
-#         return ProjectListSerializer
-
-#     def perform_create(self, serializer):
-#         """Set the creator when creating a project"""
-#         serializer.save(created_by=self.request.user)
-
-#     def destroy(self, request, *args, **kwargs):
-#         """Only staff can delete projects"""
-#         if not request.user.is_staff:
-#             return Response(
-#                 {
-#                     "success": False,
-#                     "message": "Only administrators can delete projects."
-#                 },
-#                 status=status.HTTP_403_FORBIDDEN
-#             )
-        
-#         project = self.get_object()
-#         project_name = project.name
-#         self.perform_destroy(project)
-        
-#         return Response(
-#             {
-#                 "success": True,
-#                 "message": f'Project "{project_name}" deleted successfully.'
-#             },
-#             status=status.HTTP_200_OK
-#         )
-
-
-# class ActivityViewSet(viewsets.ModelViewSet):
-#     """
-#     Activity CRUD operations with RACI role-based access.
-#     - Users with any RACI role (R/A/C/I) can view activities
-#     - Responsible/Accountable can edit
-#     - Staff can see all
-#     """
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_fields = ['status', 'priority', 'project', 'is_complete']
-#     search_fields = ['name', 'description']
-#     ordering_fields = ['created_at', 'deadline']
-#     ordering = ['-created_at']
-
-#     def get_queryset(self):
-#         """Filter activities based on user RACI roles"""
-#         user = self.request.user
-        
-#         if user.is_staff:
-#             return Activity.objects.all().select_related(
-#                 'project', 'responsible', 'accountable'
-#             ).prefetch_related('consulted', 'informed')
-        
-#         # Users see activities where they have any RACI role
-#         return Activity.objects.filter(
-#             Q(responsible=user) | 
-#             Q(accountable=user) | 
-#             Q(consulted=user) | 
-#             Q(informed=user) 
-#         ).distinct().select_related(
-#             'project', 'responsible', 'accountable'
-#         ).prefetch_related('consulted', 'informed')
-
-#     def get_serializer_class(self):
-#         """Return appropriate serializer based on action"""
-#         if self.action == 'create':
-#             return ActivityCreateSerializer
-#         if self.action == 'retrieve':
-#             return ActivityDetailSerializer
-#         return ActivityListSerializer
-
-#     @action(detail=True, methods=['post'], url_path='mark-complete')
-#     def mark_complete(self, request, pk=None):
-#         """Mark activity as completed"""
-#         activity = self.get_object()
-#         activity.status = 'completed'
-#         activity.save()
-        
-#         return Response({
-#             'success': True,
-#             'message': 'Activity marked as complete',
-#             'is_complete': activity.is_complete
-#         })
-
-#     @action(detail=True, methods=['get', 'post'])
-#     def comments(self, request, pk=None):
-#         """Get all comments or create a new comment for an activity"""
-#         activity = self.get_object()
-        
-#         if request.method == 'GET':
-#             comments = activity.comments.select_related('user').order_by('-created_at')
-#             serializer = ActivityCommentSerializer(comments, many=True)
-#             return Response(serializer.data)
-        
-#         elif request.method == 'POST':
-#             serializer = ActivityCommentSerializer(
-#                 data={'activity': activity.id, 'content': request.data.get('content')}
-#             )
-#             if serializer.is_valid():
-#                 serializer.save(user=request.user, activity=activity)
-#                 return Response(serializer.data, status=status.HTTP_201_CREATED)
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#     @action(detail=True, methods=['get', 'post'])
-#     def milestones(self, request, pk=None):
-#         """Get all milestones or create a new milestone for an activity"""
-#         activity = self.get_object()
-        
-#         if request.method == 'GET':
-#             milestones = activity.milestones.all().order_by('due_date')
-#             serializer = MilestoneSerializer(milestones, many=True)
-#             return Response(serializer.data)
-        
-#         elif request.method == 'POST':
-#             serializer = MilestoneSerializer(
-#                 data={'activity': activity.id, **request.data}
-#             )
-#             if serializer.is_valid():
-#                 serializer.save()
-#                 return Response(serializer.data, status=status.HTTP_201_CREATED)
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#     @action(detail=True, methods=['patch'], url_path='update-status')
-#     def update_status(self, request, pk=None):
-#         """Update activity status and priority"""
-#         activity = self.get_object()
-        
-#         new_status = request.data.get('status')
-#         new_priority = request.data.get('priority')
-        
-#         if new_status:
-#             activity.status = new_status
-#         if new_priority:
-#             activity.priority = new_priority
-        
-#         activity.save()
-        
-#         return Response({
-#             'success': True,
-#             'message': 'Activity updated successfully',
-#             'status': activity.status,
-#             'priority': activity.priority,
-#             'is_complete': activity.is_complete
-#         })
-
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -672,7 +496,7 @@ class MilestoneViewSet(viewsets.ModelViewSet):
         
         if user.is_staff:
             return Milestone.objects.all().select_related('activity', 'assigned_to')
-        
+
         # Users see milestones for activities they have access to
         return Milestone.objects.filter(
             Q(activity__responsible=user) | 
@@ -762,3 +586,230 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
         docs = self.get_queryset().filter(activity_id=activity_id)
         serializer = self.get_serializer(docs, many=True)
         return Response(serializer.data)
+    
+    
+
+class ActivityReviewViewSet(ModelViewSet):
+    """
+    ViewSet for managing activity reviews.
+    Access rules:
+    - Admin / Office Admin:
+        - See ALL activity reviews
+    - Supervisor:
+        - Only activities where they are CONSULTED or INFORMED
+        - Or where they are the reviewer
+    - Staff:
+        - No access
+    """
+
+    serializer_class = SupervisorReviewSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        qs = SupervisorReview.objects.select_related(
+            "activity__project",
+            "activity__responsible",
+            "reviewer"
+        ).prefetch_related(
+            "activity__consulted",
+            "activity__informed"
+        )
+
+        # Admin sees everything
+        if is_admin(user):
+            return qs
+
+        if is_supervisor(user):
+            return qs.filter(
+                Q(reviewer=user) |
+                Q(activity__consulted=user) |
+                Q(activity__informed=user)
+            ).distinct()
+
+        return SupervisorReview.objects.none()
+
+    @action(detail=True, methods=["post"])
+    def supervisor_approve(self, request, pk=None):
+        """
+        Supervisor approves their review.
+        Can optionally escalate to admin immediately.
+        """
+        review = self.get_object()
+        user = request.user
+
+        if not is_supervisor(user):
+            raise PermissionDenied("Only supervisors can approve")
+
+        if review.review_level != "supervisor":
+            raise ValidationError("Not a supervisor review")
+
+        if review.is_supervisor_approved:
+            raise ValidationError("Review already approved")
+
+        escalate_to_admin = request.data.get('escalate_to_admin', False)
+
+        # Approve the supervisor review
+        review.is_supervisor_approved = True
+        review.supervisor_approved_at = timezone.now()
+        review.status = "completed"
+        
+        if escalate_to_admin:
+            review.move_to_admin = True
+        
+        review.save()
+
+        # If escalating, create admin review
+        if escalate_to_admin:
+            admin_review, created = SupervisorReview.objects.get_or_create(
+                activity=review.activity,
+                review_level="admin",
+                defaults={
+                    "status": "not_started",
+                    "reviewer": None  
+                }
+            )
+            
+            return Response({
+                "detail": "Supervisor approved and escalated to admin",
+                "supervisor_review": self.get_serializer(review).data,
+                "admin_review": self.get_serializer(admin_review).data
+            })
+
+        return Response({
+            "detail": "Supervisor approved. Review closed.",
+            "review": self.get_serializer(review).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def move_to_admin(self, request, pk=None):
+        """
+        Escalate an approved supervisor review to admin.
+        Can only be done after supervisor approval.
+        """
+        review = self.get_object()
+        user = request.user
+
+        if not is_supervisor(user):
+            raise PermissionDenied("Only supervisors can escalate")
+
+        if review.review_level != "supervisor":
+            raise ValidationError("Only supervisor reviews can be escalated")
+
+        if not review.is_supervisor_approved:
+            raise ValidationError("Supervisor must approve before escalating")
+
+        if review.move_to_admin:
+            raise ValidationError("Review already escalated to admin")
+
+        # Mark as escalated
+        review.move_to_admin = True
+        review.save()
+
+        # Create admin review
+        admin_review, created = SupervisorReview.objects.get_or_create(
+            activity=review.activity,
+            review_level="admin",
+            defaults={
+                "status": "not_started",
+                "reviewer": None
+            }
+        )
+
+        if not created and admin_review.status == "completed":
+            raise ValidationError("Admin review already completed")
+
+        return Response({
+            "detail": "Moved to admin review",
+            "supervisor_review": self.get_serializer(review).data,
+            "admin_review": self.get_serializer(admin_review).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def admin_approve(self, request, pk=None):
+        """
+        Admin approves the review. This closes the entire review process.
+        """
+        review = self.get_object()
+        user = request.user
+
+        if not is_admin(user):
+            raise PermissionDenied("Only admins can approve")
+
+        if review.review_level != "admin":
+            raise ValidationError("Not an admin review")
+
+        if review.is_admin_approved:
+            raise ValidationError("Review already approved")
+
+        # Approve admin review
+        review.is_admin_approved = True
+        review.admin_approved_at = timezone.now()
+        review.status = "completed"
+        review.is_complete = True
+        review.save()
+
+        return Response({
+            "detail": "Admin approved. Review process complete.",
+            "review": self.get_serializer(review).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def start_review(self, request, pk=None):
+        """
+        Start a review (change status from not_started to started).
+        """
+        review = self.get_object()
+        user = request.user
+
+        # Check permissions
+        if review.review_level == "supervisor" and not is_supervisor(user):
+            raise PermissionDenied("Only supervisors can start supervisor reviews")
+        
+        if review.review_level == "admin" and not is_admin(user):
+            raise PermissionDenied("Only admins can start admin reviews")
+
+        if review.status != "not_started":
+            raise ValidationError(f"Review already {review.status}")
+
+        review.status = "started"
+        review.reviewer = user
+        review.save()
+
+        return Response({
+            "detail": "Review started",
+            "review": self.get_serializer(review).data
+        })
+
+    @action(detail=True, methods=["patch"])
+    def update_notes(self, request, pk=None):
+        """
+        Update review notes.
+        """
+        review = self.get_object()
+        user = request.user
+
+        # Check permissions
+        if review.review_level == "supervisor" and not is_supervisor(user):
+            raise PermissionDenied("Only supervisors can update supervisor review notes")
+        
+        if review.review_level == "admin" and not is_admin(user):
+            raise PermissionDenied("Only admins can update admin review notes")
+
+        notes = request.data.get('notes', '')
+        review.notes = notes
+        review.save()
+
+        return Response({
+            "detail": "Notes updated",
+            "review": self.get_serializer(review).data
+        })
+
+
+    
+    
+    
+    
+    
+    

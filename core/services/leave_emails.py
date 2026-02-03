@@ -81,7 +81,7 @@ def send_leave_approved_email(leave):
 
 
 def send_leave_rejected_email(leave):
-    subject = "Leave Request Rejected ❌"
+    subject = "Leave Request Rejected "
 
     context = {
         "user_name": leave.user.first_name or leave.user.username,

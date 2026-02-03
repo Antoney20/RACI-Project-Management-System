@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, UserActivityPriority
+from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from mint.models import Sprint
 
 User = get_user_model()
@@ -233,3 +233,44 @@ class ActivityDocumentSerializer(serializers.ModelSerializer):
         if obj.file:
             return obj.file.url
         return None
+    
+  
+  
+  
+class SupervisorReviewSerializer(serializers.ModelSerializer):
+    # Activity details
+    activity_name = serializers.CharField(source='activity.name', read_only=True)
+    activity_type = serializers.CharField(source='activity.get_type_display', read_only=True)
+    activity_status = serializers.CharField(source='activity.get_status_display', read_only=True)
+    activity_priority = serializers.CharField(source='activity.get_priority_display', read_only=True)
+    activity_deadline = serializers.DateTimeField(source='activity.deadline', read_only=True)
+    
+    project_id = serializers.UUIDField(source='activity.project.id', read_only=True)
+    project_name = serializers.CharField(source='activity.project.name', read_only=True)
+    
+    # Responsible person
+    responsible = UserMinimalSerializer(source='activity.responsible', read_only=True)
+    
+    reviewer_details = UserMinimalSerializer(source='reviewer', read_only=True)
+    
+    review_level_display = serializers.CharField(source='get_review_level_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    
+    class Meta:
+        model = SupervisorReview
+        fields = [
+            'id', 'activity', 'activity_name', 'activity_type', 'activity_status',
+            'activity_priority', 'activity_deadline', 'project_id', 'project_name',
+            'responsible', 'reviewer', 'reviewer_details', 'review_level',
+            'review_level_display', 'status', 'status_display', 
+            'is_supervisor_approved', 'supervisor_approved_at', 'move_to_admin',
+            'is_admin_approved', 'admin_approved_at', 'notes', 'started_at',
+            'completed_at', 'is_complete', 'created_at', 'updated_at'
+        ]
+        read_only_fields = (
+            'id', 'started_at', 'completed_at', 'supervisor_approved_at',
+            'admin_approved_at', 'created_at', 'updated_at', 'is_complete'
+        )  
+  
+  
+  

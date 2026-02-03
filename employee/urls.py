@@ -27,7 +27,8 @@ from .views import (
     LeaveGroupViewSet,
     EmployeeContractViewSet,
     HolidayViewSet,
-    LeaveRequestViewSet
+    LeaveRequestViewSet,
+    AttendanceViewSet
 )
 
 app_name = 'employee'
@@ -40,6 +41,8 @@ router.register(r'contracts', EmployeeContractViewSet, basename='contract')
 # router.register(r'allocations', LeaveAllocationViewSet, basename='allocation')
 router.register(r'holidays', HolidayViewSet, basename='holiday')
 router.register(r'leave-requests', LeaveRequestViewSet, basename='leave-request')
+router.register(r'attendance-timesheet', AttendanceViewSet, basename='attendance-timesheet')
+
 
 urlpatterns = [
     path('v3/', include(router.urls)),

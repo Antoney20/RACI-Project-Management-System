@@ -12,7 +12,7 @@ router.register(r'activities', views.ActivityViewSet, basename='activity')
 router.register(r'milestones', views.MilestoneViewSet, basename='milestone')
 router.register(r'documents', views.ActivityDocumentViewSet, basename='document')
 router.register(r'user-priorities', views.UserActivityPriorityViewSet, basename='user-priority')
-
+router.register(r"activity-reviews", views.ActivityReviewViewSet, basename="activity-reviews")
 
 urlpatterns = [
     path('v2/', include(router.urls)),

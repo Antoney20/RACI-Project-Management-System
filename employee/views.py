@@ -17,6 +17,13 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
+from datetime import date, timedelta
+
+from accounts.models import CustomUser
+from employee.utils.timesheet import AttendanceService
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -472,3 +479,72 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             all_balances.append(employee_info)
         return Response({'employees': all_balances})
     
+    
+    
+    
+
+
+class AttendanceViewSet(viewsets.ViewSet):
+    """
+    ViewSet for attendance operations.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request):
+        """
+        Get daily attendance for all active users (excluding external members).
+        Attendance starts from each user's creation date.
+        
+        Query Parameters:
+        - start_date: Start date for attendance range (default: 2026-01-01)
+        - end_date: End date for attendance range (default: today)
+        """
+        # Parse dates
+        start_date = parse_date(request.query_params.get('start_date', '')) or date(2026, 1, 1)
+        end_date = parse_date(request.query_params.get('end_date', ''))
+        
+        # Get all active users, excluding external members
+        users = CustomUser.objects.filter(
+            is_active=True,
+            is_external_member=False
+        ).select_related()  # Optimize query
+        
+        attendance_data = []
+        for user in users:
+            data = AttendanceService.get_attendance(str(user.id), start_date, end_date)
+            
+            # Only include if no error occurred
+            if 'error' not in data:
+                attendance_data.append(data)
+        
+        return Response(attendance_data)
+    
+    def retrieve(self, request, pk=None):
+        """
+        Get attendance for a specific user.
+        
+        Query Parameters:
+        - start_date: Start date for attendance range
+        - end_date: End date for attendance range
+        """
+        # Parse dates
+        start_date = parse_date(request.query_params.get('start_date', ''))
+        end_date = parse_date(request.query_params.get('end_date', ''))
+        
+        # Get attendance for specific user
+        data = AttendanceService.get_attendance(pk, start_date, end_date)
+        
+        if 'error' in data:
+            return Response(data, status=404)
+        
+        return Response(data)
+    
+  
+  
+    
+    
+     
+     
+     
+     
+     

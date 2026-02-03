@@ -111,7 +111,6 @@ class Activity(models.Model):
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium')
-    is_complete = models.BooleanField(default=False, editable=False)
     deadline = models.DateTimeField(null=True, blank=True)
     order = models.PositiveIntegerField(
         default=0,
@@ -327,91 +326,104 @@ class ActivityDocument(models.Model):
     def __str__(self):
         return f"{self.title or 'Untitled'} - {self.activity.name}"
 
+
 class SupervisorReview(models.Model):
     REVIEW_STATUS_CHOICES = [
         ('not_started', 'Not Started'),
-        ('started',     'Review Started'),
-        ('completed',   'Review Completed'),
-        ('rejected',    'Rejected / Needs Revision'),
+        ('started', 'Review Started'),
+        ('completed', 'Review Completed'),
+        ('reopened', 'Reopened'),
     ]
 
+    REVIEW_LEVEL_CHOICES = [
+        ('supervisor', 'Supervisor'),
+        ('admin', 'Admin'),
+    ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    activity = models.OneToOneField(
+    activity = models.ForeignKey(
         Activity,
-        on_delete=models.CASCADE, 
-        related_name='supervisor_review',
-        help_text="The activity being reviewed (typically manuscript type)"
+        on_delete=models.CASCADE,
+        related_name="supervisor_reviews"
     )
-    
-    status = models.CharField(
-        max_length=20,
-        choices=REVIEW_STATUS_CHOICES,
-        default='not_started',
-        verbose_name="Review Status"
-    )
-    
-    started_at = models.DateTimeField(
-        null=True, 
-        blank=True,
-        verbose_name="Review Started At"
-    )
-    
-    completed_at = models.DateTimeField(
-        null=True, 
-        blank=True,
-        verbose_name="Review Completed / Closed At"
-    )
-    
-    supervisor = models.ForeignKey(
+    reviewer = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='supervised_reviews',
-        verbose_name="Reviewing Supervisor"
+        related_name='reviews',
+        verbose_name="Reviewer"
     )
-    
-    notes = models.TextField(
+    review_level = models.CharField(
+        max_length=20,
         blank=True,
-        verbose_name="Supervisor Notes / Feedback"
+        null=True,
+        choices=REVIEW_LEVEL_CHOICES
+        
     )
+
+    status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS_CHOICES,
+        default='not_started'
+    )
+    is_supervisor_approved = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Supervisor approval decision"
+    )
+    supervisor_approved_at = models.DateTimeField(null=True, blank=True)
     
+    move_to_admin = models.BooleanField(
+        default=False,
+        help_text="Supervisor has escalated this review to Admin"
+    )
+
+    is_admin_approved = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Admin approval decision"
+    )
+    admin_approved_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
     is_complete = models.BooleanField(
         default=False,
-        editable=False,
-        help_text="True when review is completed or rejected"
+        editable=False
     )
-    
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "raci_supervisor_review"
-        verbose_name = "Supervisor Review"
-        verbose_name_plural = "Supervisor Reviews"
         ordering = ['-completed_at', '-started_at']
         indexes = [
             models.Index(fields=['activity', 'status']),
-            models.Index(fields=['supervisor']),
+            models.Index(fields=['reviewer']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['activity', 'review_level'],
+                name='unique_review_per_level'
+            )
         ]
 
     def __str__(self):
-        return f"Review for {self.activity} - {self.get_status_display()}"
+        return f" review for {self.activity}"
 
     def save(self, *args, **kwargs):
-        # Auto-set dates and is_complete
-        if self.status in ('started', 'completed', 'rejected'):
-            if self.status == 'started' and not self.started_at:
-                self.started_at = timezone.now()
-            if self.status in ('completed', 'rejected') and not self.completed_at:
-                self.completed_at = timezone.now()
-                self.is_complete = True
+        if self.status == 'started' and not self.started_at:
+            self.started_at = timezone.now()
 
+        if self.status == 'completed' and not self.completed_at:
+            self.completed_at = timezone.now()
+            self.is_complete = True
 
         super().save(*args, **kwargs)
-        
-        
-        
+
         
         
         
