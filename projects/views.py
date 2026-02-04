@@ -7,6 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, F
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from django.utils import timezone
 
 from projects.utils.roles import is_admin, is_supervisor
 
@@ -321,18 +322,23 @@ class ActivityViewSet(viewsets.ModelViewSet):
         
         review, created = SupervisorReview.objects.get_or_create(
             activity=activity,
+            review_level='supervisor',  
             defaults={
-                'supervisor': supervisor,
+                'reviewer': supervisor, 
                 'status': 'not_started'
             }
         )
         
-        # If review exists but was previously completed/rejected, reset it
         if not created and review.is_complete:
             review.status = 'not_started'
             review.started_at = None
             review.completed_at = None
             review.is_complete = False
+            review.is_supervisor_approved = None
+            review.supervisor_approved_at = None
+            review.move_to_admin = False
+            review.is_admin_approved = None
+            review.admin_approved_at = None
             review.notes = ''
             review.save()
         
@@ -588,13 +594,13 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
     
     
-
 class ActivityReviewViewSet(ModelViewSet):
     """
     ViewSet for managing activity reviews.
     Access rules:
     - Admin / Office Admin:
         - See ALL activity reviews
+        - Can do ANYTHING (start any review, approve, update notes, etc.)
     - Supervisor:
         - Only activities where they are CONSULTED or INFORMED
         - Or where they are the reviewer
@@ -635,12 +641,22 @@ class ActivityReviewViewSet(ModelViewSet):
         """
         Supervisor approves their review.
         Can optionally escalate to admin immediately.
+        Admins can also approve supervisor reviews.
         """
         review = self.get_object()
         user = request.user
 
-        if not is_supervisor(user):
-            raise PermissionDenied("Only supervisors can approve")
+        # Admins can do anything, supervisors need to be consulted/informed
+        if not is_admin(user):
+            if not is_supervisor(user):
+                raise PermissionDenied("Only supervisors or admins can approve")
+            
+            # Check if supervisor is consulted or informed
+            is_consulted = review.activity.consulted.filter(id=user.id).exists()
+            is_informed = review.activity.informed.filter(id=user.id).exists()
+            
+            if not (is_consulted or is_informed):
+                raise PermissionDenied("You must be consulted or informed on this activity")
 
         if review.review_level != "supervisor":
             raise ValidationError("Not a supervisor review")
@@ -648,20 +664,20 @@ class ActivityReviewViewSet(ModelViewSet):
         if review.is_supervisor_approved:
             raise ValidationError("Review already approved")
 
-        escalate_to_admin = request.data.get('escalate_to_admin', False)
+        move_to_admin = request.data.get('move_to_admin', False)
 
         # Approve the supervisor review
         review.is_supervisor_approved = True
         review.supervisor_approved_at = timezone.now()
         review.status = "completed"
         
-        if escalate_to_admin:
+        if move_to_admin:
             review.move_to_admin = True
         
         review.save()
 
         # If escalating, create admin review
-        if escalate_to_admin:
+        if move_to_admin:
             admin_review, created = SupervisorReview.objects.get_or_create(
                 activity=review.activity,
                 review_level="admin",
@@ -687,12 +703,22 @@ class ActivityReviewViewSet(ModelViewSet):
         """
         Escalate an approved supervisor review to admin.
         Can only be done after supervisor approval.
+        Admins can also escalate.
         """
         review = self.get_object()
         user = request.user
 
-        if not is_supervisor(user):
-            raise PermissionDenied("Only supervisors can escalate")
+        # Admins can do anything, supervisors need to be consulted/informed
+        if not is_admin(user):
+            if not is_supervisor(user):
+                raise PermissionDenied("Only supervisors or admins can escalate")
+            
+            # Check if supervisor is consulted or informed
+            is_consulted = review.activity.consulted.filter(id=user.id).exists()
+            is_informed = review.activity.informed.filter(id=user.id).exists()
+            
+            if not (is_consulted or is_informed):
+                raise PermissionDenied("You must be consulted or informed on this activity")
 
         if review.review_level != "supervisor":
             raise ValidationError("Only supervisor reviews can be escalated")
@@ -730,12 +756,13 @@ class ActivityReviewViewSet(ModelViewSet):
     def admin_approve(self, request, pk=None):
         """
         Admin approves the review. This closes the entire review process.
+        Only admins can approve admin reviews.
         """
         review = self.get_object()
         user = request.user
 
         if not is_admin(user):
-            raise PermissionDenied("Only admins can approve")
+            raise PermissionDenied("Only admins can approve admin reviews")
 
         if review.review_level != "admin":
             raise ValidationError("Not an admin review")
@@ -759,52 +786,84 @@ class ActivityReviewViewSet(ModelViewSet):
     def start_review(self, request, pk=None):
         """
         Start a review (change status from not_started to started).
+        - Admins can start any review
+        - Supervisors can start reviews if they are consulted or informed
         """
         review = self.get_object()
         user = request.user
 
-        # Check permissions
-        if review.review_level == "supervisor" and not is_supervisor(user):
-            raise PermissionDenied("Only supervisors can start supervisor reviews")
-        
-        if review.review_level == "admin" and not is_admin(user):
-            raise PermissionDenied("Only admins can start admin reviews")
-
         if review.status != "not_started":
             raise ValidationError(f"Review already {review.status}")
 
-        review.status = "started"
-        review.reviewer = user
-        review.save()
+        # Admins can start any review
+        if is_admin(user):
+            review.status = "started"
+            review.reviewer = user
+            review.save()
+            
+            return Response({
+                "detail": "Review started",
+                "review": self.get_serializer(review).data
+            })
 
-        return Response({
-            "detail": "Review started",
-            "review": self.get_serializer(review).data
-        })
+        # Supervisors can only start supervisor reviews if consulted/informed
+        if review.review_level == "supervisor" and is_supervisor(user):
+            is_consulted = review.activity.consulted.filter(id=user.id).exists()
+            is_informed = review.activity.informed.filter(id=user.id).exists()
+            
+            if is_consulted or is_informed:
+                review.status = "started"
+                review.reviewer = user
+                review.save()
+                
+                return Response({
+                    "detail": "Review started",
+                    "review": self.get_serializer(review).data
+                })
+        
+        raise PermissionDenied(
+            "You must be consulted or informed on this activity to start the review"
+        )
 
     @action(detail=True, methods=["patch"])
     def update_notes(self, request, pk=None):
         """
         Update review notes.
+        - Admins can update any review notes
+        - Supervisors can update notes if they are consulted or informed
         """
         review = self.get_object()
         user = request.user
 
-        # Check permissions
-        if review.review_level == "supervisor" and not is_supervisor(user):
-            raise PermissionDenied("Only supervisors can update supervisor review notes")
+        # Admins can update any notes
+        if is_admin(user):
+            notes = request.data.get('notes', '')
+            review.notes = notes
+            review.save()
+            
+            return Response({
+                "detail": "Notes updated",
+                "review": self.get_serializer(review).data
+            })
+
+        # Supervisors can update notes if consulted/informed
+        if review.review_level == "supervisor" and is_supervisor(user):
+            is_consulted = review.activity.consulted.filter(id=user.id).exists()
+            is_informed = review.activity.informed.filter(id=user.id).exists()
+            
+            if is_consulted or is_informed:
+                notes = request.data.get('notes', '')
+                review.notes = notes
+                review.save()
+                
+                return Response({
+                    "detail": "Notes updated",
+                    "review": self.get_serializer(review).data
+                })
         
-        if review.review_level == "admin" and not is_admin(user):
-            raise PermissionDenied("Only admins can update admin review notes")
-
-        notes = request.data.get('notes', '')
-        review.notes = notes
-        review.save()
-
-        return Response({
-            "detail": "Notes updated",
-            "review": self.get_serializer(review).data
-        })
+        raise PermissionDenied(
+            "You must be consulted or informed on this activity to update review notes"
+        )
 
 
     

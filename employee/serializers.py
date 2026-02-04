@@ -43,29 +43,51 @@ class HolidaySerializer(serializers.ModelSerializer):
 
 
 
+# class EmployeeContractSerializer(serializers.ModelSerializer):
+#     """Employee contract with leave entitlements"""
+#     user_details = UserMinimalSerializer(source='user', read_only=True)
+#     leave_group_name = serializers.CharField(source='leave_group.name', read_only=True)
+    
+#     class Meta:
+#         model = EmployeeContract
+#         fields = '__all__'
+#         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+#     def validate(self, data):
+#         """Validate contract dates and settings"""
+#         start_date = data.get('start_date')
+#         end_date = data.get('end_date')
+        
+#         if start_date and end_date and end_date < start_date:
+#             raise serializers.ValidationError({
+#                 'end_date': 'End date must be after start date'
+#             })
+        
+#         return data
+
+
+
 class EmployeeContractSerializer(serializers.ModelSerializer):
-    """Employee contract with leave entitlements"""
+    """Serializer for employee contracts - minimal, preserves existing logic."""
     user_details = UserMinimalSerializer(source='user', read_only=True)
-    leave_group_name = serializers.CharField(source='leave_group.name', read_only=True)
+    leave_group_name = serializers.CharField(
+        source='leave_group.name',
+        read_only=True,
+        allow_null=True
+    )
     
     class Meta:
         model = EmployeeContract
-        fields = '__all__'
+        fields = [
+            'id', 'user', 'user_details', 'payroll_number',
+            'contract_type', 'leave_group', 'leave_group_name',
+            'is_fte', 'fte_percentage', 'default_week_days',
+            'contract_months', 'start_date', 'end_date',
+            'is_current', 'is_expired', 'is_forfeited',
+            'annual_carried_forward', 'annual_leave_used',
+            'sick_leave_used', 'notes', 'created_at', 'updated_at',
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def validate(self, data):
-        """Validate contract dates and settings"""
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
-        
-        if start_date and end_date and end_date < start_date:
-            raise serializers.ValidationError({
-                'end_date': 'End date must be after start date'
-            })
-        
-        return data
-
-
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):

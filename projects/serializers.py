@@ -2,17 +2,34 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from mint.models import Sprint
+from employee.models import EmployeeContract
 
 User = get_user_model()
 
 
+
 class UserMinimalSerializer(serializers.ModelSerializer):
-    """Lightweight user info for nested relations"""
     full_name = serializers.CharField(read_only=True)
-    
+    payroll_number = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'full_name', 'gender', 'role', 'department', 'profile_image']
+        fields = [
+            'id',
+            'username',
+            'email',
+            'full_name',
+            'gender',
+            'role',
+            'position',
+            'department',
+            'profile_image',
+            'payroll_number',
+        ]
+
+    def get_payroll_number(self, obj):
+        contract = obj.contracts.filter(is_current=True).first()
+        return contract.payroll_number if contract else None
 
 
 # PROJECT SERIALIZERS

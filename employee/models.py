@@ -220,8 +220,14 @@ class LeaveRequest(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name='leave_requests_to_approve_old',
+        help_text="Supervisor assigned to approve this request old"
+    )
+    supervisors = models.ManyToManyField(
+        User,
         related_name='leave_requests_to_approve',
-        help_text="Supervisor assigned to approve this request"
+        blank=True,
+        help_text="Supervisors assigned to approve this request"
     )
     approved_by = models.ForeignKey(
         User, 
@@ -269,3 +275,8 @@ class LeaveRequest(models.Model):
     
     def __str__(self):
         return f"{self.user} - {self.leave_type} ({self.start_date} to {self.end_date})"
+    
+    
+    
+    
+    

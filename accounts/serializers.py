@@ -243,8 +243,7 @@ class LoginSerializer(serializers.Serializer):
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
-    
-    
+    payroll_number = serializers.SerializerMethodField()
     
     groups = serializers.SlugRelatedField(
         many=True,
@@ -260,7 +259,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
+            'id', 'username', 'email',   'payroll_number', 'first_name', 'last_name', 'full_name',
             'phone', 'bio',  'profile_image',
             'is_active', 'is_email_verified', 'status',
             'is_staff', 'last_login_at', 'failed_login_attempts',
@@ -278,6 +277,9 @@ class UserSerializer(serializers.ModelSerializer):
         roles = list(obj.groups.values_list('name', flat=True))
         return roles if roles else ['staff']
 
+    def get_payroll_number(self, obj):
+        contract = obj.contracts.filter(is_current=True).first()
+        return contract.payroll_number if contract else None
 
 
 class UserDetailSerializer(serializers.ModelSerializer):

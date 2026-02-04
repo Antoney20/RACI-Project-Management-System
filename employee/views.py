@@ -128,38 +128,124 @@ class HolidayViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+# class EmployeeContractViewSet(viewsets.ModelViewSet):
+#     """Manage employment contracts"""
+#     serializer_class = EmployeeContractSerializer
+#     permission_classes = [IsAuthenticated]
+    
+    
+#     def get_queryset(self):
+#         if self.request.user.is_staff:
+#             return EmployeeContract.objects.select_related(
+#                 'user', 'leave_group'
+#             ).order_by('-is_current', '-start_date', 'user__first_name')
+#         return EmployeeContract.objects.filter(user=self.request.user)
+    
+#     @action(detail=False, methods=['get'], url_path='all')
+#     def all_contracts(self, request):
+#         """Staff-only endpoint to get ALL contracts with full details"""
+#         if not request.user.is_staff:
+#             return Response({"detail": "Not authorized"}, status=403)
+            
+#         queryset = self.get_queryset()
+#         serializer = self.get_serializer(queryset, many=True)
+#         return Response(serializer.data)
+    
+#     def perform_create(self, serializer):
+#         """Create contract and initialize leave allocation"""
+#         contract = serializer.save()
+#     #     self._initialize_leave_allocation(contract)
+    
+    
+#     @action(detail=False, methods=['get'])
+#     def current(self, request):
+#         """Get current active contract for user"""
+#         contract = self.get_queryset().filter(
+#             user=request.user,
+#             is_current=True
+#         ).first()
+        
+#         if not contract:
+#             return Response(
+#                 {'detail': 'No active contract found'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+        
+#         serializer = self.get_serializer(contract)
+#         return Response(serializer.data)
+
 class EmployeeContractViewSet(viewsets.ModelViewSet):
-    """Manage employment contracts"""
+    """
+    Manage employment contracts with role-based permissions.
+    
+    Roles:
+    - admin: Full access
+    - office_admin: Create and Read only
+    - Others: Read own contracts only
+    """
     serializer_class = EmployeeContractSerializer
     permission_classes = [IsAuthenticated]
     
-    
     def get_queryset(self):
-        if self.request.user.is_staff:
+        """Preserve existing queryset logic."""
+        user = self.request.user
+        if user.role in ['admin', 'office_admin']:
             return EmployeeContract.objects.select_related(
                 'user', 'leave_group'
             ).order_by('-is_current', '-start_date', 'user__first_name')
-        return EmployeeContract.objects.filter(user=self.request.user)
+        return EmployeeContract.objects.filter(user=user)
+    
+    def create(self, request, *args, **kwargs):
+        """Only admin and office_admin can create."""
+        if request.user.role not in ['admin', 'office_admin']:
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().create(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        """Only admin can update."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().update(request, *args, **kwargs)
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Only admin can update."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().partial_update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Only admin can delete."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
     
     @action(detail=False, methods=['get'], url_path='all')
     def all_contracts(self, request):
-        """Staff-only endpoint to get ALL contracts with full details"""
-        if not request.user.is_staff:
-            return Response({"detail": "Not authorized"}, status=403)
-            
+        """Get all contracts - admin and office_admin only."""
+        if request.user.role not in ['admin', 'office_admin']:
+            return Response(
+                {'detail': 'Not authorized'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
-    def perform_create(self, serializer):
-        """Create contract and initialize leave allocation"""
-        contract = serializer.save()
-    #     self._initialize_leave_allocation(contract)
-    
-    
     @action(detail=False, methods=['get'])
     def current(self, request):
-        """Get current active contract for user"""
+        """Get current active contract for user - preserve existing logic."""
         contract = self.get_queryset().filter(
             user=request.user,
             is_current=True
@@ -173,8 +259,61 @@ class EmployeeContractViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(contract)
         return Response(serializer.data)
-
-
+    
+    # New action endpoints - admin only
+    
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """Deactivate contract - admin only."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        contract = self.get_object()
+        contract.is_current = False
+        contract.save(update_fields=['is_current', 'updated_at'])
+        
+        serializer = self.get_serializer(contract)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """Activate contract - admin only."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        contract = self.get_object()
+        contract.is_current = True
+        contract.save(update_fields=['is_current', 'updated_at'])
+        
+        serializer = self.get_serializer(contract)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def mark_expired(self, request, pk=None):
+        """Mark contract as expired - admin only."""
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Not authorized to perform this action'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        contract = self.get_object()
+        contract.is_expired = True
+        contract.is_current = False
+        contract.save(update_fields=['is_expired', 'is_current', 'updated_at'])
+        
+        serializer = self.get_serializer(contract)
+        return Response(serializer.data)
+    
+    def perform_create(self, serializer):
+        """Preserve existing create logic."""
+        contract = serializer.save()
 
 class LeaveRequestViewSet(viewsets.ModelViewSet):
     """
@@ -194,17 +333,22 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         if user.is_admin():
             return base_qs
 
-        if user.is_supervisor():
-            # Decide: all or only supervised?
-            return base_qs.filter(supervisor=user)   # ← most common choice
+        # if user.is_supervisor():
+        #     return base_qs.filter(supervisor=user)  
 
-        # Regular user - only own requests
         return base_qs.filter(user=user)
 
 
-    
     def create(self, request, *args, **kwargs):
-        """Create a new leave request with validation."""
+        """
+        Create a new leave request with validation.
+        
+        The backend automatically calculates days_requested based on:
+        - ANNUAL: Working days (excludes weekends + holidays)
+        - Others: Calendar days (includes weekends + holidays)
+        
+        Frontend should NOT send days_requested - it will be ignored.
+        """
         user = request.user 
         
         # Get active contract
@@ -224,17 +368,19 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         leave_type = request.data.get('leave_type', 'ANNUAL').upper() 
         start_date = request.data.get('start_date')
         end_date = request.data.get('end_date')
-        days_requested = request.data.get('days_requested')
         
-        # Calculate working days if not provided
-        if not days_requested and start_date and end_date:
-            days_requested = calculate_working_days(
-                start_date,
-                end_date,
-                contract.default_week_days
+        if not start_date or not end_date:
+            return Response(
+                {'error': 'Both start_date and end_date are required'},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            
-            
+        
+        days_requested = calculate_working_days(
+            start_date,
+            end_date,
+            default_week_days=contract.default_week_days,
+            leave_type=leave_type  
+        )
         
         # Validate request
         is_valid, error_msg = validate_leave_request(
@@ -252,12 +398,10 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Add contract to request data
         data = request.data.copy()
         data['contract'] = contract.id
         data['days_requested'] = str(days_requested)
         
- 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         serializer.save(user=user) 
@@ -269,9 +413,11 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 f"Supervisor notification failed for leave {serializer.instance.id}: {exc}",
                 exc_info=True,
             )
-
         
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    
+    
     
     @action(detail=False, methods=['get'])
     def balance(self, request):
