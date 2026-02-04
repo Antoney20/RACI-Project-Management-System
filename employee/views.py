@@ -626,8 +626,6 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
         return Response({'employees': all_balances})
     
     
-    
-    
 
 
 class AttendanceViewSet(viewsets.ViewSet):

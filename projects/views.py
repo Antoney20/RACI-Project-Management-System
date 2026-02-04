@@ -8,7 +8,11 @@ from django.db.models import Q, F
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
+from django.http import HttpRequest
 
+from rest_framework.viewsets import ViewSet
+from rest_framework.permissions import IsAuthenticated 
+from projects.utils.review_service import ActivityReportService
 from projects.utils.roles import is_admin, is_supervisor
 
 from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
@@ -866,7 +870,27 @@ class ActivityReviewViewSet(ModelViewSet):
         )
 
 
-    
+class ActivityReportsViewSet(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        user = request.user
+
+        if user.role not in ['admin', 'supervisor']:
+            return Response(
+                {'error': 'You do not have permission to view reports.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            report_data = ActivityReportService.compile_report(user)
+            return Response(report_data, status=status.HTTP_200_OK)
+        except ValueError as ve:
+            return Response({'error': str(ve)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({'error': f'Failed to: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+   
+   
     
     
     

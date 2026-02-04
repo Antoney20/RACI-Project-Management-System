@@ -13,6 +13,7 @@ router.register(r'milestones', views.MilestoneViewSet, basename='milestone')
 router.register(r'documents', views.ActivityDocumentViewSet, basename='document')
 router.register(r'user-priorities', views.UserActivityPriorityViewSet, basename='user-priority')
 router.register(r"activity-reviews", views.ActivityReviewViewSet, basename="activity-reviews")
+router.register(r"activity-reports", views.ActivityReportsViewSet, basename="activity-reports")
 
 urlpatterns = [
     path('v2/', include(router.urls)),
