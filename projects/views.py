@@ -4,20 +4,23 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q, F
+from django.db.models import Q, F, Count
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
+from datetime import timedelta
 from django.http import HttpRequest
 
 from rest_framework.viewsets import ViewSet
 from rest_framework.permissions import IsAuthenticated 
+
+from notifications.service import NotificationService
 from projects.utils.review_service import ActivityReportService
 from projects.utils.roles import is_admin, is_supervisor
 
-from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
+from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from .serializers import (
-    ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
+    NotificationSerializer, ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
     ActivityCreateSerializer, ActivityListSerializer, ActivityDetailSerializer,
     MilestoneSerializer, ActivityCommentSerializer, MilestoneCommentSerializer,
     ActivityDocumentSerializer, ReorderSerializer, SupervisorReviewSerializer, UserActivityPrioritySerializer
@@ -894,5 +897,319 @@ class ActivityReportsViewSet(ViewSet):
     
     
     
+
+
+class NotificationViewSet(ViewSet):
+    """
+    Notification management viewset
     
+    Endpoints:
+    - list: Get all notifications for current user
+    - unread: Get unread notifications
+    - mark_read: Mark notification as read
+    - mark_all_read: Mark all notifications as read
+    - stats: Get notification statistics
+    - project_status: Get project status summary
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request):
+        """Get all notifications for current user"""
+        user = request.user
+        
+        # Query params
+        is_read = request.query_params.get('is_read')
+        notification_type = request.query_params.get('type')
+        limit = int(request.query_params.get('limit', 50))
+        
+        # Build query
+        queryset = Notification.objects.filter(recipient=user)
+        
+        if is_read is not None:
+            queryset = queryset.filter(is_read=is_read.lower() == 'true')
+        
+        if notification_type:
+            queryset = queryset.filter(notification_type=notification_type)
+        
+        notifications = queryset[:limit]
+        
+        serializer = NotificationSerializer(notifications, many=True)
+        
+        return Response({
+            'count': queryset.count(),
+            'unread_count': queryset.filter(is_read=False).count(),
+            'notifications': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def unread(self, request):
+        """Get only unread notifications"""
+        user = request.user
+        limit = int(request.query_params.get('limit', 20))
+        
+        notifications = Notification.objects.filter(
+            recipient=user,
+            is_read=False
+        )[:limit]
+        
+        serializer = NotificationSerializer(notifications, many=True)
+        
+        return Response({
+            'count': notifications.count(),
+            'notifications': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark a notification as read"""
+        try:
+            notification = Notification.objects.get(
+                id=pk,
+                recipient=request.user
+            )
+            notification.mark_read()
+            
+            return Response({
+                'message': 'Notification marked as read',
+                'notification': NotificationSerializer(notification).data
+            })
+        except Notification.DoesNotExist:
+            return Response(
+                {'error': 'Notification not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """Mark all notifications as read for current user"""
+        user = request.user
+        
+        updated = Notification.objects.filter(
+            recipient=user,
+            is_read=False
+        ).update(is_read=True)
+        
+        return Response({
+            'message': f'Marked {updated} notifications as read',
+            'count': updated
+        })
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get notification statistics"""
+        user = request.user
+        
+        # Overall counts
+        total = Notification.objects.filter(recipient=user).count()
+        unread = Notification.objects.filter(recipient=user, is_read=False).count()
+        
+        # By type
+        by_type = Notification.objects.filter(
+            recipient=user
+        ).values('notification_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # Recent (last 7 days)
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        recent = Notification.objects.filter(
+            recipient=user,
+            created_at__gte=seven_days_ago
+        ).count()
+        
+        # Urgent unread (activity overdue, leave pending for supervisors)
+        urgent_unread = Notification.objects.filter(
+            recipient=user,
+            is_read=False,
+            notification_type__in=['activity_overdue', 'leave_pending', 'contract_expiring']
+        ).count()
+        
+        return Response({
+            'total': total,
+            'unread': unread,
+            'recent_7_days': recent,
+            'urgent_unread': urgent_unread,
+            'by_type': list(by_type),
+            'summary': {
+                'read_rate': round((total - unread) / total * 100, 1) if total > 0 else 0,
+                'avg_per_day': round(recent / 7, 1)
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def project_status(self, request):
+        """Get project status summary for user"""
+        user = request.user
+        
+        summary = NotificationService.generate_project_status_update(user)
+        
+        return Response({
+            'user': user.get_full_name() or user.username,
+            'generated_at': timezone.now(),
+            'projects': summary
+        })
+    
+    @action(detail=False, methods=['delete'])
+    def clear_old(self, request):
+        """Delete old read notifications (older than 30 days)"""
+        user = request.user
+        
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        deleted_count, _ = Notification.objects.filter(
+            recipient=user,
+            is_read=True,
+            created_at__lt=thirty_days_ago
+        ).delete()
+        
+        return Response({
+            'message': f'Deleted {deleted_count} old notifications',
+            'count': deleted_count
+        })
+    
+    @action(detail=False, methods=['get'])
+    def by_category(self, request):
+        """Get notifications grouped by category"""
+        user = request.user
+        
+        categories = {
+            'leave': ['leave_pending', 'leave_approved', 'leave_rejected'],
+            'activities': ['activity_assigned', 'activity_due', 'activity_overdue'],
+            'reviews': ['review_needed', 'review_completed'],
+            'contracts': ['contract_expiring', 'contract_expired'],
+            'projects': ['project_status']
+        }
+        
+        result = {}
+        
+        for category, types in categories.items():
+            notifications = Notification.objects.filter(
+                recipient=user,
+                notification_type__in=types,
+                is_read=False
+            ).order_by('-created_at')[:10]
+            
+            result[category] = {
+                'count': notifications.count(),
+                'notifications': NotificationSerializer(notifications, many=True).data
+            }
+        
+        return Response(result)
+
+
+class AdminNotificationViewSet(ViewSet):
+    """
+    Admin-only notification management
+    
+    Endpoints:
+    - trigger_reminders: Manually trigger all reminder notifications
+    - send_pending: Send all pending notifications
+    - system_stats: Get system-wide notification statistics
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def _check_admin(self, user):
+        """Check if user is admin"""
+        if not hasattr(user, 'role') or user.role != 'admin':
+            return False
+        return True
+    
+    @action(detail=False, methods=['post'])
+    def trigger_reminders(self, request):
+        """Manually trigger all reminder notifications"""
+        if not self._check_admin(request.user):
+            return Response(
+                {'error': 'Admin access required'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        results = {}
+        
+        # Leave reminders
+        results['pending_leaves'] = NotificationService.notify_pending_leave_approvals()
+        
+        # Activity reminders
+        results['activities_due'] = NotificationService.notify_activity_due_soon()
+        results['activities_overdue'] = NotificationService.notify_overdue_activities()
+        
+        # Review reminders
+        results['pending_reviews'] = NotificationService.notify_pending_reviews()
+        
+        # Contract reminders
+        results['expiring_contracts'] = NotificationService.notify_expiring_contracts()
+        
+        return Response({
+            'message': 'Reminders triggered successfully',
+            'results': results,
+            'total_created': sum(r.get('created', 0) for r in results.values())
+        })
+    
+    @action(detail=False, methods=['post'])
+    def send_pending(self, request):
+        """Send all pending notifications via email"""
+        if not self._check_admin(request.user):
+            return Response(
+                {'error': 'Admin access required'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        results = NotificationService.send_pending_notifications()
+        
+        return Response({
+            'message': 'Pending notifications processed',
+            'sent': results['sent'],
+            'failed': results['failed']
+        })
+    
+    @action(detail=False, methods=['get'])
+    def system_stats(self, request):
+        """Get system-wide notification statistics"""
+        if not self._check_admin(request.user):
+            return Response(
+                {'error': 'Admin access required'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Total notifications
+        total = Notification.objects.count()
+        unread = Notification.objects.filter(is_read=False).count()
+        pending_send = Notification.objects.filter(is_sent=False).count()
+        
+        # By type
+        by_type = Notification.objects.values(
+            'notification_type'
+        ).annotate(
+            total=Count('id'),
+            unread=Count('id', filter=Q(is_read=False))
+        ).order_by('-total')
+        
+
+        failed = Notification.objects.filter(
+            is_sent=False,
+            retry_count__gte=NotificationService.MAX_RETRIES
+        ).count()
+        
+        return Response({
+            'total_notifications': total,
+            'unread': unread,
+            'pending_send': pending_send,
+            'failed_sends': failed,
+            'by_type': list(by_type),
+            'system_health': {
+                'send_success_rate': round((total - failed) / total * 100, 1) if total > 0 else 100,
+                'read_rate': round((total - unread) / total * 100, 1) if total > 0 else 0
+            }
+        })
+
+
+
+
+
+
+
+
+
+
+
+
     

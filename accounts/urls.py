@@ -8,6 +8,9 @@ app_name = 'accounts'
 
 router = DefaultRouter()
 router.register(r'users', views.ManageUserViewSet, basename='manage-user')
+router.register(r'profile', views.UserProfileViewSet, basename='user-profile')
+router.register(r'settings', views.UserSettingsViewSet, basename='user-settings')
+
 
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
@@ -16,6 +19,7 @@ urlpatterns = [
     
     path('auth/verify/<uuid:user_id>/<str:token>/', views.EmailVerifyView.as_view(), name='email-verify'),
     
+    path('auth/device/verify/', views.VerifyDeviceView.as_view(), name='device-verify'),
     path('auth/password-reset/', views.PasswordResetRequestView.as_view(), name='password-reset-request'),
     path('auth/password-reset-confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('auth/change-password/', views.ChangePasswordView.as_view(), name='change-password'),

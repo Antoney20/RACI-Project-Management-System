@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
+from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from mint.models import Sprint
 from employee.models import EmployeeContract
 
@@ -291,3 +291,44 @@ class SupervisorReviewSerializer(serializers.ModelSerializer):
   
   
   
+  
+  
+class NotificationSerializer(serializers.ModelSerializer):
+    """Serializer for notifications"""
+    recipient_name = serializers.SerializerMethodField()
+    time_ago = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Notification
+        fields = [
+            'id', 
+            'recipient', 
+            'recipient_name',
+            'notification_type', 
+            'title', 
+            'message',
+            'related_id',
+            'action_url',
+            'is_read',
+            'is_sent',
+            'sent_at',
+            'created_at',
+            'time_ago'
+        ]
+        read_only_fields = ['id', 'created_at', 'sent_at']
+    
+    def get_recipient_name(self, obj):
+        return obj.recipient.get_full_name() or obj.recipient.username
+    
+    def get_time_ago(self, obj):
+        from django.utils import timezone
+        diff = timezone.now() - obj.created_at
+        
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds >= 3600:
+            return f"{diff.seconds // 3600}h ago"
+        elif diff.seconds >= 60:
+            return f"{diff.seconds // 60}m ago"
+        else:
+            return "just now"

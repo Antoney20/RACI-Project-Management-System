@@ -147,6 +147,24 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 CRONJOBS = [
     # Every day at 8:00 AM - Move completed projects to review
     ('0 8 * * *', 'mint.cron.for_review.move_completed_projects_to_review'),
+    
+    ('0 9 * * *', 'notifications.jobs.notify_pending_leaves', '>> /var/log/cron_leaves.log'),
+    
+    # Every day at 8 AM - Check activities due soon
+    ('0 8 * * *', 'notifications.jobs.notify_activities_due', '>> /var/log/cron_activities.log'),
+    
+    # Every day at 10 AM - Check overdue activities
+    ('0 10 * * *', 'notifications.jobs.notify_overdue_activities', '>> /var/log/cron_overdue.log'),
+    
+    # Every day at 9 AM - Check pending reviews
+    ('0 9 * * *', 'notifications.jobs.notify_pending_reviews', '>> /var/log/cron_reviews.log'),
+    
+    # Every Monday at 8 AM - Check expiring contracts
+    ('0 8 * * 1', 'notifications.jobs.notify_expiring_contracts', '>> /var/log/cron_contracts.log'),
+    
+    # Every hour - Send pending notifications
+    ('0 * * * *', 'notifications.jobs.send_pending_notifications', '>> /var/log/cron_send.log'),
+
 ]
 
 
@@ -251,15 +269,15 @@ WSGI_APPLICATION = "raci.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.sqlite3",
-#         "NAME": BASE_DIR / "raci.sqlite3",
-#         "OPTIONS": {          
-#             "timeout": 60,    
-#         },
-#     }
-# }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "raci.sqlite3",
+        "OPTIONS": {          
+            "timeout": 60,    
+        },
+    }
+}
 
 # DATABASES = {
 #     "default": {
@@ -283,16 +301,16 @@ WSGI_APPLICATION = "raci.wsgi.application"
 # }
 
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('DB_NAME'),
+#         'USER': os.getenv('DB_USER'),
+#         'PASSWORD': os.getenv('DB_PASSWORD'),
+#         'HOST': os.getenv('DB_HOST'),
+#         'PORT': os.getenv('DB_PORT'),
+#     }
+# }
 
 
 

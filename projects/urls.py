@@ -14,6 +14,8 @@ router.register(r'documents', views.ActivityDocumentViewSet, basename='document'
 router.register(r'user-priorities', views.UserActivityPriorityViewSet, basename='user-priority')
 router.register(r"activity-reviews", views.ActivityReviewViewSet, basename="activity-reviews")
 router.register(r"activity-reports", views.ActivityReportsViewSet, basename="activity-reports")
+router.register(r'notifications', views.NotificationViewSet, basename='notification')
+router.register(r'admin/notifications', views.AdminNotificationViewSet, basename='admin-notification')
 
 urlpatterns = [
     path('v2/', include(router.urls)),

@@ -335,7 +335,97 @@ class EmailLog(models.Model):
     def __str__(self):
         return f"[{self.category}] {self.subject} → {self.recipient} ({self.status})"
     
-    
-    
+
+
+class TrustedDevice(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    device_id = models.CharField(max_length=128)
+
+    # Client / metadata (optional)
+    device_name = models.CharField(max_length=100, blank=True)
+    device_type = models.CharField(max_length=50, blank=True)
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    browser = models.CharField(max_length=100, blank=True)
+    os = models.CharField(max_length=100, blank=True)
+
+    # Security state
+    is_trusted = models.BooleanField(default=True)
+    is_suspicious = models.BooleanField(default=False)
+
+    failed_attempts = models.PositiveIntegerField(default=0)
+    last_failed_attempt_at = models.DateTimeField(null=True, blank=True)
+
+    verification_token = models.UUIDField(null=True, blank=True)
+    verification_expires_at = models.DateTimeField(null=True, blank=True)
+
+    last_used_at = models.DateTimeField(auto_now=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True,null=True, blank=True)
+
+
+    class Meta:
+        unique_together = [['user', 'device_id']]
+        ordering = ['-last_used_at']
+
+    def register_failed_attempt(self):
+        now = timezone.now()
+
+        if self.last_failed_attempt_at and now - self.last_failed_attempt_at > timezone.timedelta(minutes=30):
+            self.failed_attempts = 0
+
+        self.failed_attempts += 1
+        self.last_failed_attempt_at = now
+
+        if self.failed_attempts >= 5:
+            self.is_suspicious = True
+            self.is_trusted = False
+            self.verification_token = uuid.uuid4()
+            self.verification_expires_at = now + timezone.timedelta(hours=24)
+
+        self.save()
+
+    def reset_failures(self):
+        self.failed_attempts = 0
+        self.last_failed_attempt_at = None
+        self.save(update_fields=["failed_attempts", "last_failed_attempt_at"])
+        
+class LoginAttempt(models.Model):
+    STATUS_CHOICES = (
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+        ('blocked', 'Blocked'),
+    )
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    device_id = models.CharField(max_length=128, blank=True)
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    browser = models.CharField(max_length=100, blank=True)
+    os = models.CharField(max_length=100, blank=True)
+    device_type = models.CharField(max_length=50, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    payload = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['ip_address']),
+            models.Index(fields=['status']),
+        ]
+
 auditlog.register(CustomUser)
+auditlog.register(TrustedDevice)
 auditlog.register(EmailLog)
+auditlog.register(LoginAttempt)

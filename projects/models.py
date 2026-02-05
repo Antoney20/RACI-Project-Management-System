@@ -113,7 +113,7 @@ class Activity(models.Model):
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium')
     deadline = models.DateTimeField(null=True, blank=True)
     order = models.PositiveIntegerField(
-        default=0,
+        null=True, blank=True,
         db_index=True,
         help_text="Display order within the project"
     )
@@ -125,20 +125,20 @@ class Activity(models.Model):
         db_table = "raci_activity"
         verbose_name = "RACI Activity"
         verbose_name_plural = "RACI Activities"
-        ordering = ['project', 'order', '-created_at']
+        ordering = ['project', '-created_at']
         indexes = [
             models.Index(fields=["project", "status"]),
             models.Index(fields=["responsible"]),
             models.Index(fields=["accountable"]),
-            models.Index(fields=["project", "order"]),
+            models.Index(fields=["project"]),
         ]
         
-        constraints = [
-            models.UniqueConstraint(
-                fields=['project', 'order'],
-                name='unique_activity_order_per_project'
-            )
-        ]
+        # constraints = [
+        #     models.UniqueConstraint(
+        #         fields=['project', 'order'],
+        #         name='unique_activity_order_per_project'
+        #     )
+        # ]
 
 
     def save(self, *args, **kwargs):
@@ -427,3 +427,54 @@ class SupervisorReview(models.Model):
         
         
         
+
+class Notification(models.Model):
+    """Simplified notification model"""
+    TYPES = [
+        ('leave_pending', 'Leave Pending Approval'),
+        ('leave_approved', 'Leave Approved'),
+        ('leave_rejected', 'Leave Rejected'),
+        ('activity_assigned', 'Activity Assigned'),
+        ('activity_due', 'Activity Due Soon'),
+        ('activity_overdue', 'Activity Overdue'),
+        ('review_needed', 'Review Needed'),
+        ('review_completed', 'Review Completed'),
+        ('project_status', 'Project Status Update'),
+        ('contract_expiring', 'Contract Expiring'),
+        ('contract_expired', 'Contract Expired'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=30, choices=TYPES)
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    
+    # Generic linking
+    related_id = models.UUIDField(null=True, blank=True)
+    action_url = models.CharField(max_length=500, blank=True, null=True)
+    
+    # Status
+    is_read = models.BooleanField(default=False)
+    is_sent = models.BooleanField(default=False)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    retry_count = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = "notification"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["recipient", "is_read"]),
+            models.Index(fields=["is_sent", "retry_count"]),
+        ]
+    
+    def mark_read(self):
+        self.is_read = True
+        self.save(update_fields=['is_read'])
+    
+    def mark_sent(self):
+        self.is_sent = True
+        self.sent_at = timezone.now()
+        self.save(update_fields=['is_sent', 'sent_at'])

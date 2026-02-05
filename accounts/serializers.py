@@ -4,8 +4,9 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.db.models import Q
 
+from accounts.utils.client import get_client_ip
 from mint.models import LeaveAllocation
-from .models import CustomUser, RoleEnum, UserStatus
+from .models import CustomUser, LoginAttempt, RoleEnum, TrustedDevice, UserStatus
 from django.contrib.auth.password_validation import validate_password
 
 
@@ -202,43 +203,66 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
         return user
 
 
-class LoginSerializer(serializers.Serializer):
-    username_or_email = serializers.CharField()
-    password = serializers.CharField(write_only=True)
+# class LoginSerializer(serializers.Serializer):
+#     username_or_email = serializers.CharField()
+#     password = serializers.CharField(write_only=True)
     
+#     def validate(self, data):
+#         username_or_email = data.get('username_or_email')
+#         password = data.get('password')
+        
+#         user = CustomUser.objects.filter(
+#             Q(username=username_or_email) | Q(email=username_or_email)
+#         ).first()
+        
+#         if not user:
+#             raise serializers.ValidationError("Invalid username or email.")
+        
+#         if user.status == UserStatus.BLOCKED:
+#             raise serializers.ValidationError(
+#                 "Your account has been blocked. Please contact CEMA-Africa support."
+#             )
+        
+#         if not user.check_password(password):
+#             user.failed_login_attempts += 1
+#             user.save(update_fields=['failed_login_attempts'])
+#             raise serializers.ValidationError("Invalid password.")
+        
+#         if not user.is_active:
+#             raise serializers.ValidationError(
+#                 "Your account is inactive. Please contact support."
+#             )
+        
+        
+#         return {"user": user}
+
+class LoginSerializer(serializers.Serializer):
+    username_or_email = serializers.CharField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
+    device_id = serializers.CharField(max_length=128, required=True)
+    device_name = serializers.CharField(required=False, allow_blank=True, default="")
+
+
     def validate(self, data):
-        username_or_email = data.get('username_or_email')
-        password = data.get('password')
-        
+        username_or_email = data['username_or_email']
+        password = data['password']
+
         user = CustomUser.objects.filter(
-            Q(username=username_or_email) | Q(email=username_or_email)
+            Q(username__iexact=username_or_email) |
+            Q(email__iexact=username_or_email)
         ).first()
-        
+
         if not user:
-            raise serializers.ValidationError("Invalid username or email.")
-        
-        if user.status == UserStatus.BLOCKED:
-            raise serializers.ValidationError(
-                "Your account has been blocked. Please contact CEMA-Africa support."
-            )
-        
-        if not user.check_password(password):
-            # Increment failed login attempts
-            user.failed_login_attempts += 1
-            user.save(update_fields=['failed_login_attempts'])
-            raise serializers.ValidationError("Invalid password.")
-        
+            raise serializers.ValidationError("Invalid credentials.")
+
         if not user.is_active:
-            raise serializers.ValidationError(
-                "Your account is inactive. Please contact support."
-            )
-        
-        # if not user.is_email_verified:
-        #     raise serializers.ValidationError(
-        #         "Your email has not been verified. Please wait for secretariate approval."
-        #     )
-        
-        return {"user": user}
+            raise serializers.ValidationError("Account inactive.")
+
+        if not user.check_password(password):
+            raise serializers.ValidationError("Invalid credentials.")
+
+        data['user'] = user
+        return data
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -420,6 +444,132 @@ class CustomUserSerializer(serializers.ModelSerializer):
                 validated_data.pop(field, None)
         
         return super().update(instance, validated_data)
+    
+    
+    
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for user profile data"""
+    full_name = serializers.CharField(source='get_full_name', read_only=True)
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'email',
+            'username',
+            'first_name',
+            'last_name',
+            'full_name',
+            'phone',
+            'bio',
+            'profile_image',
+            'role',
+            'department',
+            'position',
+            'gender',
+            'is_email_verified',
+            'status',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id',
+            'email',
+            'role',
+            'is_email_verified',
+            'status',
+            'created_at',
+        ]
+
+
+class ProfileImageSerializer(serializers.ModelSerializer):
+    """Serializer for profile image upload"""
+    
+    class Meta:
+        model = CustomUser
+        fields = ['profile_image']
+
+    def validate_profile_image(self, value):
+        """Validate image size and format"""
+        if value.size > 20 * 1024 * 1024:  
+            raise serializers.ValidationError(
+                "Image file size cannot exceed 20MB"
+            )
+        
+        allowed_types = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
+        if value.content_type not in allowed_types:
+            raise serializers.ValidationError(
+                "Only JPEG, PNG, and WebP images are allowed"
+            )
+        
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer for password change"""
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(
+        required=True,
+        write_only=True,
+        validators=[validate_password]
+    )
+    confirm_password = serializers.CharField(required=True, write_only=True)
+
+    def validate(self, attrs):
+        """Validate passwords match"""
+        if attrs['new_password'] != attrs['confirm_password']:
+            raise serializers.ValidationError({
+                'confirm_password': 'Passwords do not match'
+            })
+        
+        if attrs['old_password'] == attrs['new_password']:
+            raise serializers.ValidationError({
+                'new_password': 'New password must be different from old password'
+            })
+        
+        return attrs
+
+
+class TrustedDeviceSerializer(serializers.ModelSerializer):
+    """Serializer for trusted devices"""
+    
+    class Meta:
+        model = TrustedDevice
+        fields = [
+            'device_id',
+            'device_name',
+            'device_type',
+            'browser',
+            'os',
+            'ip_address',
+            'is_trusted',
+            'is_suspicious',
+            'failed_attempts',
+            'last_used_at',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class LoginAttemptSerializer(serializers.ModelSerializer):
+    """Serializer for login attempts"""
+    
+    class Meta:
+        model = LoginAttempt
+        fields = [
+            'id',
+            'device_id',
+            'ip_address',
+            'browser',
+            'os',
+            'device_type',
+            'status',
+            'created_at',
+        ]
+        read_only_fields = fields
+    
+    
+    
 # ============================================================================
 # mint/serializers.py
 # ============================================================================

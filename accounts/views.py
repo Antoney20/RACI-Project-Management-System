@@ -1,5 +1,6 @@
 
 import logging
+import uuid
 from rest_framework import status, generics,  viewsets, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -17,16 +18,18 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.db.models import Q, Count, Sum
 
+from accounts.utils.client import get_client_ip, get_user_agent, parse_user_agent
 from mint.models import LeaveAllocation, LeaveRequest
 # MilestoneComment, Project, ProjectComment 
 
 
-from .models import CustomUser, UserStatus
+from .models import CustomUser, LoginAttempt, TrustedDevice, UserStatus
 from .serializers import (
-    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, RegisterSerializer, LoginSerializer, UserSerializer, UserDetailSerializer, UserListSerializer,
+    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, LoginAttemptSerializer, ProfileImageSerializer, RegisterSerializer, LoginSerializer, TrustedDeviceSerializer, UserProfileSerializer, UserSerializer, UserDetailSerializer, UserListSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerifySerializer, ChangePasswordSerializer, LogoutSerializer
 )
@@ -81,49 +84,155 @@ class RegisterView(generics.CreateAPIView):
                 'errors': getattr(e, 'detail', str(e))
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# class LoginView(APIView):
+#     """
+#     User login - returns access and refresh tokens
+#     Accepts username or email with password
+#     """
+#     permission_classes = [AllowAny]
+
+#     def post(self, request):
+#         try:
+#             serializer = LoginSerializer(data=request.data)
+#             serializer.is_valid(raise_exception=True)
+
+#             user = serializer.validated_data['user']
+
+#             # Generate tokens
+#             refresh = RefreshToken.for_user(user)
+#             access_token = refresh.access_token
+
+#             # Update last login
+#             user.last_login_at = timezone.now()
+#             user.failed_login_attempts = 0
+#             user.save(update_fields=['last_login_at', 'failed_login_attempts'])
+
+#             login(request, user)
+#             logger.info(f"User logged in: {user.email}")
+
+#             return Response({
+#                 'success': True,
+#                 'message': 'Login successful',
+#                 'user': UserDetailSerializer(user).data,
+#                 'tokens': {
+#                     'access': str(access_token),
+#                     'refresh': str(refresh)
+#                 }
+#             }, status=status.HTTP_200_OK)
+
+#         except Exception as e:
+#             logger.error(f"Login error: {str(e)}")
+#             return Response({
+#                 'success': False,
+#                 'message': 'Login failed. Please try again.'
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class LoginView(APIView):
-    """
-    User login - returns access and refresh tokens
-    Accepts username or email with password
-    """
     permission_classes = [AllowAny]
 
     def post(self, request):
-        try:
-            serializer = LoginSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+        serializer = LoginSerializer(data=request.data)
 
-            user = serializer.validated_data['user']
+        ip_address = get_client_ip(request)
+        user_agent = get_user_agent(request)
+        browser, os = parse_user_agent(user_agent)
 
-            # Generate tokens
-            refresh = RefreshToken.for_user(user)
-            access_token = refresh.access_token
+        if not serializer.is_valid():
+            LoginAttempt.objects.create(
+                user=None,
+                device_id=request.data.get('device_id', ''),
+                ip_address=ip_address,
+                user_agent=user_agent,
+                browser=browser,
+                os=os,
+                device_type=request.data.get('device_type', 'other'),
+                status='failed',
+            )
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            # Update last login
-            user.last_login_at = timezone.now()
-            user.failed_login_attempts = 0
-            user.save(update_fields=['last_login_at', 'failed_login_attempts'])
+        user = serializer.validated_data['user']
+        device_id = serializer.validated_data['device_id']
 
-            login(request, user)
-            logger.info(f"User logged in: {user.email}")
+        device, created = TrustedDevice.objects.get_or_create(
+            user=user,
+            device_id=device_id,
+            defaults={
+                'device_name': serializer.validated_data.get('device_name', ''),
+                'device_type': serializer.validated_data.get('device_type', 'other'),
+                'ip_address': ip_address,
+                'user_agent': user_agent,
+                'browser': browser,
+                'os': os,
+                'is_trusted': True,
+            }
+        )
 
-            return Response({
-                'success': True,
-                'message': 'Login successful',
-                'user': UserDetailSerializer(user).data,
-                'tokens': {
-                    'access': str(access_token),
-                    'refresh': str(refresh)
-                }
-            }, status=status.HTTP_200_OK)
+        if device.is_suspicious:
+            LoginAttempt.objects.create(
+                user=user,
+                device_id=device_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                browser=browser,
+                os=os,
+                device_type=device.device_type,
+                status='blocked',
+                payload={
+                "reason": "invalid_credentials",
+                "username_or_email": request.data.get("username_or_email"),
+                },
+            )
 
-        except Exception as e:
-            logger.error(f"Login error: {str(e)}")
-            return Response({
-                'success': False,
-                'message': 'Login failed. Please try again.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Suspicious activity detected. Please verify your identity.",
+                    "needs_verification": True,
+                    "verification_token": str(device.verification_token),
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        device.reset_failures()
+        device.ip_address = ip_address
+        device.user_agent = user_agent
+        device.browser = browser
+        device.os = os
+        device.save(update_fields=[
+            'ip_address', 'user_agent', 'browser', 'os', 'last_used_at'
+        ])
+
+        LoginAttempt.objects.create(
+            user=user,
+            device_id=device_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            browser=browser,
+            os=os,
+            device_type=device.device_type,
+            status='success',
+            payload={
+                "login": "success",
+                "path": request.path,
+                "device_name": serializer.validated_data.get("device_name", ""),
+            },
+        )
+
+        refresh = RefreshToken.for_user(user)
+        login(request, user)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Login successful",
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                },
+            },
+            status=status.HTTP_200_OK
+        )
 
 class LogoutView(APIView):
     """User logout - blacklists refresh token"""
@@ -678,6 +787,197 @@ def user_list(request):
     return Response(serializer.data)
 
 
+class VerifyDeviceView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("token")
+
+        try:
+            device = TrustedDevice.objects.get(verification_token=token)
+        except TrustedDevice.DoesNotExist:
+            return Response({"success": False, "message": "Invalid or expired link"}, status=400)
+
+        if device.is_expired_verification:
+            return Response({"success": False, "message": "Verification link expired"}, status=410)
+
+        if device.is_trusted:
+            return Response({"success": True, "message": "Device already verified"}, status=200)
+
+        if not TrustedDevice.can_add_more(device.user):
+            return Response({
+                "success": False,
+                "message": "Maximum number of trusted devices reached. Please remove one first."
+            }, status=403)
+
+        device.is_trusted = True
+        device.is_suspicious = False
+        device.verification_token = None
+        device.verification_expires_at = None
+        device.save()
+
+        return Response({
+            "success": True,
+            "message": "Device verified successfully. You can now log in."
+        }, status=200)
+
+
+
+
+
+
+class UserProfileViewSet(viewsets.GenericViewSet):
+    """
+    User profile management
+    - GET: Retrieve current user profile
+    - PATCH: Update profile fields
+    - POST upload_image: Update profile image
+    - POST change_password: Change password
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserProfileSerializer
+
+    def get_queryset(self):
+        return CustomUser.objects.filter(id=self.request.user.id)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Get current user profile"""
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Update user profile fields"""
+        serializer = self.get_serializer(
+            request.user,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=['post'],
+        parser_classes=[MultiPartParser, FormParser],
+        serializer_class=ProfileImageSerializer
+    )
+    def upload_image(self, request):
+        """Upload/update profile image"""
+        serializer = self.get_serializer(
+            request.user,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({
+            'message': 'Profile image updated successfully',
+            'profile_image': serializer.data.get('profile_image')
+        })
+
+    @action(
+        detail=False,
+        methods=['post'],
+        serializer_class=ChangePasswordSerializer
+    )
+    def change_password(self, request):
+        """Change user password"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        old_password = serializer.validated_data['old_password']
+        new_password = serializer.validated_data['new_password']
+
+        # Verify old password
+        if not check_password(old_password, user.password):
+            return Response(
+                {'old_password': 'Current password is incorrect'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Set new password
+        user.set_password(new_password)
+        user.force_password_change = False
+        user.save(update_fields=['password', 'force_password_change'])
+
+        return Response({
+            'message': 'Password changed successfully'
+        })
+
+
+class UserSettingsViewSet(viewsets.GenericViewSet):
+    """
+    User settings and security management
+    - GET devices: List trusted devices
+    - POST devices/block: Block a device
+    - GET activities: Last 10 login attempts
+    - GET security_status: Email verification and account status
+    """
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def devices(self, request):
+        """List user's trusted devices"""
+        devices = TrustedDevice.objects.filter(user=request.user)
+        serializer = TrustedDeviceSerializer(devices, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='devices/block')
+    def block_device(self, request):
+        """Block a trusted device"""
+        device_id = request.data.get('device_id')
+        if not device_id:
+            return Response(
+                {'error': 'device_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            device = TrustedDevice.objects.get(
+                user=request.user,
+                device_id=device_id
+            )
+            device.is_trusted = False
+            device.is_suspicious = True
+            device.save(update_fields=['is_trusted', 'is_suspicious'])
+
+            return Response({
+                'message': 'Device blocked successfully',
+                'device_id': device_id
+            })
+        except TrustedDevice.DoesNotExist:
+            return Response(
+                {'error': 'Device not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['get'])
+    def activities(self, request):
+        """Get last 10 login attempts"""
+        attempts = LoginAttempt.objects.filter(
+            user=request.user
+        ).order_by('-created_at')[:10]
+        
+        serializer = LoginAttemptSerializer(attempts, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def security_status(self, request):
+        """Get account security status"""
+        user = request.user
+        return Response({
+            'email_verified': user.is_email_verified,
+            'email_verified_at': user.email_verified_at,
+            'account_status': user.status,
+            'is_active': user.is_active,
+            'force_password_change': user.force_password_change,
+            'last_login': user.last_login_at,
+            'failed_login_attempts': user.failed_login_attempts,
+            'account_locked': user.account_locked_until is not None,
+            'account_locked_until': user.account_locked_until,
+        })
 
 
 
