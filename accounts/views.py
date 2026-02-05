@@ -822,33 +822,40 @@ class VerifyDeviceView(APIView):
         }, status=200)
 
 
-
-
-
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from django.contrib.auth.hashers import check_password
 
 class UserProfileViewSet(viewsets.GenericViewSet):
     """
-    User profile management
-    - GET: Retrieve current user profile
-    - PATCH: Update profile fields
-    - POST upload_image: Update profile image
-    - POST change_password: Change password
+    User profile management (current user)
+    - GET    /accounts/profile/
+    - PATCH  /accounts/profile/
+    - POST   /accounts/profile/upload_image/
+    - POST   /accounts/profile/change_password/
     """
     permission_classes = [IsAuthenticated]
     serializer_class = UserProfileSerializer
 
+    # 🔑 Always operate on the current user
+    def get_object(self):
+        return self.request.user
+
     def get_queryset(self):
         return CustomUser.objects.filter(id=self.request.user.id)
 
-    def retrieve(self, request, *args, **kwargs):
+    def list(self, request, *args, **kwargs):
         """Get current user profile"""
-        serializer = self.get_serializer(request.user)
+        serializer = self.get_serializer(self.get_object())
         return Response(serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
         """Update user profile fields"""
         serializer = self.get_serializer(
-            request.user,
+            self.get_object(),
             data=request.data,
             partial=True
         )
@@ -860,17 +867,19 @@ class UserProfileViewSet(viewsets.GenericViewSet):
         detail=False,
         methods=['post'],
         parser_classes=[MultiPartParser, FormParser],
-        serializer_class=ProfileImageSerializer
+        serializer_class=ProfileImageSerializer,
+        url_path='upload_image'
     )
     def upload_image(self, request):
         """Upload/update profile image"""
         serializer = self.get_serializer(
-            request.user,
+            self.get_object(),
             data=request.data,
             partial=True
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
         return Response({
             'message': 'Profile image updated successfully',
             'profile_image': serializer.data.get('profile_image')
@@ -879,25 +888,24 @@ class UserProfileViewSet(viewsets.GenericViewSet):
     @action(
         detail=False,
         methods=['post'],
-        serializer_class=ChangePasswordSerializer
+        serializer_class=ChangePasswordSerializer,
+        url_path='change_password'
     )
     def change_password(self, request):
         """Change user password"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user = request.user
+        user = self.get_object()
         old_password = serializer.validated_data['old_password']
         new_password = serializer.validated_data['new_password']
 
-        # Verify old password
         if not check_password(old_password, user.password):
             return Response(
                 {'old_password': 'Current password is incorrect'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Set new password
         user.set_password(new_password)
         user.force_password_change = False
         user.save(update_fields=['password', 'force_password_change'])
@@ -905,6 +913,7 @@ class UserProfileViewSet(viewsets.GenericViewSet):
         return Response({
             'message': 'Password changed successfully'
         })
+
 
 
 class UserSettingsViewSet(viewsets.GenericViewSet):
