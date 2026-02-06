@@ -1,0 +1,43 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block header_title %}Activity Due Soon ⏰{% endblock %}
+
+{% block content %}
+<p style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 4px;">
+    <strong>Reminder:</strong> One of your activities is due soon!
+</p>
+
+<p>
+    The activity <strong>{{ activity_name }}</strong> in the <strong>{{ project_name }}</strong> project 
+    is due in <strong>{{ days_remaining }} day{{ days_remaining|pluralize }}</strong>.
+</p>
+
+<div class="info-box">
+    <table class="details-table">
+        <tr>
+            <td>Activity</td>
+            <td><strong>{{ activity_name }}</strong></td>
+        </tr>
+        <tr>
+            <td>Project</td>
+            <td>{{ project_name }}</td>
+        </tr>
+        <tr>
+            <td>Deadline</td>
+            <td><strong>{{ deadline|date:"F j, Y, g:i A" }}</strong></td>
+        </tr>
+        <tr>
+            <td>Days Remaining</td>
+            <td><strong>{{ days_remaining }}</strong></td>
+        </tr>
+    </table>
+</div>
+
+
+{% endblock %}
+
+{% block action_button %}
+<div class="button-container">
+    <a href="{{ action_url }}" class="button">View the Activity</a>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block header_title %}Review Needed {% endblock %}
+
+{% block content %}
+<p>An activity in the <strong>{{ project_name }}</strong> project requires your review and approval.</p>
+
+<div class="info-box">
+    <table class="details-table">
+        <tr>
+            <td>Activity</td>
+            <td><strong>{{ activity_name }}</strong></td>
+        </tr>
+        <tr>
+            <td>Project</td>
+            <td>{{ project_name }}</td>
+        </tr>
+        <tr>
+            <td>Review Level</td>
+            <td><strong>{{ review_level|title }}</strong></td>
+        </tr>
+    </table>
+</div>
+
+<p>
+    As a {{ review_level }}, your review and approval are needed to move this activity forward. 
+</p>
+{% endblock %}
+
+{% block action_button %}
+<div class="button-container">
+    <a href="{{ action_url }}" class="button">Review Activity</a>
+</div>
+{% endblock %}

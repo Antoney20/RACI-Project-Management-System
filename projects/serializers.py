@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from mint.models import Sprint
 from employee.models import EmployeeContract
+# from projects.utils.reviews import create_or_reset_supervisor_review
 
 User = get_user_model()
 
@@ -86,6 +87,52 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
 
 # ACTIVITY SERIALIZERS
 
+# class ActivityCreateSerializer(serializers.ModelSerializer):
+#     project_id = serializers.PrimaryKeyRelatedField(
+#         queryset=Project.objects.all(),
+#         source='project',
+#         write_only=True
+#     )
+#     responsible_id = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         source='responsible',
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     accountable_id = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         source='accountable',
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     consulted_ids = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         source='consulted',
+#         many=True,
+#         write_only=True,
+#         required=False
+#     )
+#     informed_ids = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         source='informed',
+#         many=True,
+#         write_only=True,
+#         required=False
+#     )
+#     order = serializers.IntegerField(read_only=False, required=False)
+
+#     class Meta:
+#         model = Activity
+#         fields = [
+#             'id', 'project_id', 'name', 'description', 'type', 'order',         
+#             'responsible_id', 'accountable_id', 'consulted_ids', 'informed_ids',
+#             'status', 'priority', 'deadline', 'created_at'
+#         ]
+#         read_only_fields = ['id', 'created_at']
+
+
 class ActivityCreateSerializer(serializers.ModelSerializer):
     project_id = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(),
@@ -120,16 +167,58 @@ class ActivityCreateSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
-    order = serializers.IntegerField(read_only=False, required=False)
+    order = serializers.IntegerField(required=False)
 
     class Meta:
         model = Activity
         fields = [
-            'id', 'project_id', 'name', 'description', 'type', 'order',         
-            'responsible_id', 'accountable_id', 'consulted_ids', 'informed_ids',
-            'status', 'priority', 'deadline', 'created_at'
+            'id',
+            'project_id',
+            'name',
+            'description',
+            'type',
+            'order',
+            'responsible_id',
+            'accountable_id',
+            'consulted_ids',
+            'informed_ids',
+            'status',
+            'priority',
+            'deadline',
+            'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+    # 🔐 Prevent workflow bypass
+    def validate_status(self, value):
+        request = self.context.get('request')
+
+        if value == 'completed' and not (
+            request.user.is_admin() or request.user.is_supervisor()
+        ):
+            raise serializers.ValidationError(
+                "Only Admins or Supervisors can create completed activities."
+            )
+        return value
+
+    def create(self, validated_data):
+        consulted = validated_data.pop('consulted', [])
+        informed = validated_data.pop('informed', [])
+
+        activity = Activity.objects.create(**validated_data)
+
+        if consulted:
+            activity.consulted.set(consulted)
+        if informed:
+            activity.informed.set(informed)
+
+        if activity.status == 'completed':
+            view = self.context.get('view')
+            if view:
+                view._create_supervisor_review(activity)
+
+        return activity
+
 
 class ActivityListSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)

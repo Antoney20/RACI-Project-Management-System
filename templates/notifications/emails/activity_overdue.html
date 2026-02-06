@@ -1,0 +1,49 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block header_title %}Activity Overdue {% endblock %}
+
+{% block content %}
+<p style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; border-radius: 4px; color: #721c24;">
+    <strong>Urgent:</strong> One of your activities is overdue!
+</p>
+
+<p>
+    The activity <strong>{{ activity_name }}</strong> in the <strong>{{ project_name }}</strong> project 
+    is now overdue by <strong>{{ days_overdue }} day{{ days_overdue|pluralize }}</strong>.
+</p>
+
+<div class="info-box">
+    <table class="details-table">
+        <tr>
+            <td>Activity</td>
+            <td><strong>{{ activity_name }}</strong></td>
+        </tr>
+        <tr>
+            <td>Project</td>
+            <td>{{ project_name }}</td>
+        </tr>
+        <tr>
+            <td>Original Deadline</td>
+            <td>{{ deadline|date:"F j, Y, g:i A" }}</td>
+        </tr>
+        <tr>
+            <td>Days Overdue</td>
+            <td><strong style="color: #dc3545;">{{ days_overdue }}</strong></td>
+        </tr>
+        {% if responsible_name %}
+        <tr>
+            <td>Assigned To</td>
+            <td>{{ responsible_name }}</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+
+{% endblock %}
+
+{% block action_button %}
+<div class="button-container">
+    <a href="{{ action_url }}" class="button">Update Activity</a>
+</div>
+{% endblock %}

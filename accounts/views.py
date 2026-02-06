@@ -20,8 +20,9 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from django.db.models import Q, Count, Sum
+from django.db.models import Q,F, Count, Sum
 
+from accounts.service.stats import DashboardStatsService
 from accounts.utils.client import get_client_ip, get_user_agent, parse_user_agent
 from mint.models import LeaveAllocation, LeaveRequest
 # MilestoneComment, Project, ProjectComment 
@@ -127,34 +128,88 @@ class RegisterView(generics.CreateAPIView):
 #                 'message': 'Login failed. Please try again.'
 #             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
         ip_address = get_client_ip(request)
         user_agent = get_user_agent(request)
         browser, os = parse_user_agent(user_agent)
 
-        if not serializer.is_valid():
+        username_or_email = serializer.validated_data['username_or_email']
+        password = serializer.validated_data['password']
+        device_id = serializer.validated_data['device_id']
+
+        user = CustomUser.objects.filter(
+            Q(username__iexact=username_or_email) |
+            Q(email__iexact=username_or_email)
+        ).first()
+
+        # ---------- USER NOT FOUND ----------
+        if not user:
             LoginAttempt.objects.create(
                 user=None,
-                device_id=request.data.get('device_id', ''),
+                device_id=device_id,
                 ip_address=ip_address,
                 user_agent=user_agent,
                 browser=browser,
                 os=os,
-                device_type=request.data.get('device_type', 'other'),
+                device_type=serializer.validated_data.get('device_type', 'other'),
                 status='failed',
+                payload={"reason": "user_not_found"},
             )
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-        user = serializer.validated_data['user']
-        device_id = serializer.validated_data['device_id']
+        # ---------- INACTIVE ACCOUNT ----------
+        if not user.is_active:
+            LoginAttempt.objects.create(
+                user=user,
+                device_id=device_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                browser=browser,
+                os=os,
+                device_type=serializer.validated_data.get('device_type', 'other'),
+                status='failed',
+                payload={"reason": "inactive_account"},
+            )
+            return Response(
+                {"success": False, "message": "Account inactive"},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-        device, created = TrustedDevice.objects.get_or_create(
+        # ---------- WRONG PASSWORD ----------
+        if not user.check_password(password):
+            LoginAttempt.objects.create(
+                user=user,
+                device_id=device_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                browser=browser,
+                os=os,
+                device_type=serializer.validated_data.get('device_type', 'other'),
+                status='failed',
+                payload={"reason": "invalid_password"},
+            )
+
+            TrustedDevice.objects.filter(
+                user=user,
+                device_id=device_id
+            ).update(failure_count=F('failure_count') + 1)
+
+            return Response(
+                {"success": False, "message": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # ---------- TRUSTED DEVICE ----------
+        device, _ = TrustedDevice.objects.get_or_create(
             user=user,
             device_id=device_id,
             defaults={
@@ -168,6 +223,7 @@ class LoginView(APIView):
             }
         )
 
+        # ---------- SUSPICIOUS DEVICE ----------
         if device.is_suspicious:
             LoginAttempt.objects.create(
                 user=user,
@@ -178,22 +234,20 @@ class LoginView(APIView):
                 os=os,
                 device_type=device.device_type,
                 status='blocked',
-                payload={
-                "reason": "invalid_credentials",
-                "username_or_email": request.data.get("username_or_email"),
-                },
+                payload={"reason": "device_flagged"},
             )
 
             return Response(
                 {
                     "success": False,
-                    "message": "Suspicious activity detected. Please verify your identity.",
+                    "message": "Suspicious activity detected",
                     "needs_verification": True,
                     "verification_token": str(device.verification_token),
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        # ---------- SUCCESS ----------
         device.reset_failures()
         device.ip_address = ip_address
         device.user_agent = user_agent
@@ -212,11 +266,7 @@ class LoginView(APIView):
             os=os,
             device_type=device.device_type,
             status='success',
-            payload={
-                "login": "success",
-                "path": request.path,
-                "device_name": serializer.validated_data.get("device_name", ""),
-            },
+            payload={"login": "success"},
         )
 
         refresh = RefreshToken.for_user(user)
@@ -225,7 +275,6 @@ class LoginView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Login successful",
                 "tokens": {
                     "access": str(refresh.access_token),
                     "refresh": str(refresh),
@@ -233,6 +282,7 @@ class LoginView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
 
 class LogoutView(APIView):
     """User logout - blacklists refresh token"""
@@ -822,13 +872,6 @@ class VerifyDeviceView(APIView):
         }, status=200)
 
 
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.response import Response
-from django.contrib.auth.hashers import check_password
-
 class UserProfileViewSet(viewsets.GenericViewSet):
     """
     User profile management (current user)
@@ -991,262 +1034,163 @@ class UserSettingsViewSet(viewsets.GenericViewSet):
 
 
 
-# class DashboardView(APIView):
-#     """Unified dashboard - shows different data based on user role"""
-#     permission_classes = [IsAuthenticated]
+
+class DashboardStatsViewSet(viewsets.ViewSet):
+    """
+    Dashboard.
     
-#     def get(self, request):
-#         user = request.user
-#         is_admin = user.is_staff or user.is_superuser
-        
-#         if is_admin:
-#             return Response(self._get_admin_dashboard())
-#         else:
-#             return Response(self._get_user_dashboard(user))
+    Provides role-based dashboard data in a single call.
+    """
+    permission_classes = [IsAuthenticated]
     
-#     def _get_user_dashboard(self, user):
-#         """Dashboard for regular users"""
-#         today = timezone.now()
-#         current_year = today.year
+    def list(self, request):
+        """
+        Get dashboard stats for current user.
         
-#         # Projects
-#         user_projects = Project.objects.filter(
-#             Q(owner=user) | Q(raci_assignments__user=user)
-#         ).distinct()
+        Returns role-appropriate data:
+        - Admin: Pending leaves, system stats, contracts expiring
+        - Supervisor: Team leaves, supervised activities, reviews
+        - Staff: Personal activities, milestones, leave balance
         
-#         projects_list = []
-#         for project in user_projects:
-#             is_overdue = False
-#             days_overdue = 0
+        Query params: None (uses request.user automatically)
+        """
+        user = request.user
+        
+        try:
+            stats = DashboardStatsService.get_stats(user)
             
-#             if project.end_date and project.end_date < today:
-#                 if project.status not in ['completed', 'cancelled']:
-#                     is_overdue = True
-#                     days_overdue = (today - project.end_date).days
+            return Response({
+                'success': True,
+                'user': {
+                    'name': user.get_full_name() or user.username,
+                    'email': user.email,
+                    'role': getattr(user, 'role', 'staff'),
+                },
+                'data': stats,
+                'generated_at': None  
+            }, status=status.HTTP_200_OK)
             
-#             duration = None
-#             if project.start_date and project.end_date:
-#                 duration = (project.end_date - project.start_date).days
+        except Exception as e:
+            logger.error(
+                f"Dashboard stats failed for user {user.id}: {e}",
+                exc_info=True
+            )
             
-#             projects_list.append({
-#                 'id': str(project.id),
-#                 'name': project.name,
-#                 'status': project.status,
-#                 'priority': project.priority,
-#                 'duration_days': duration,
-#                 'start_date': project.start_date,
-#                 'end_date': project.end_date,
-#                 'is_overdue': is_overdue,
-#                 'days_overdue': days_overdue,
-#                 'progress': project.progress,
-#             })
-        
-#         # Leave stats
-#         try:
-#             leave_allocation = LeaveAllocation.objects.get(
-#                 user=user, year=current_year
-#             )
-#             leave_stats = {
-#                 'annual_total': leave_allocation.annual_leave_days,
-#                 'annual_used': leave_allocation.annual_used,
-#                 'annual_remaining': leave_allocation.annual_remaining,
-#                 'sick_total': leave_allocation.sick_leave_days,
-#                 'sick_used': leave_allocation.sick_used,
-#                 'sick_remaining': leave_allocation.sick_remaining,
-#             }
-#         except LeaveAllocation.DoesNotExist:
-#             leave_stats = {
-#                 'annual_total': 0,
-#                 'annual_used': 0,
-#                 'annual_remaining': 0,
-#                 'sick_total': 0,
-#                 'sick_used': 0,
-#                 'sick_remaining': 0,
-#             }
-        
-#         # Recent activities
-#         activities = self._get_user_activities(user)
-        
-#         return {
-#             'user': {
-#                 'id': user.id,
-#                 'username': user.username,
-#                 'full_name': user.get_full_name() or f"{user.first_name} {user.last_name}",
-#                 'email': user.email,
-#                 'last_login': user.last_login,
-#             },
-#             'projects': {
-#                 'total': user_projects.count(),
-#                 'list': projects_list,
-#             },
-#             'leave': leave_stats,
-#             'recent_activities': activities,
-#         }
+            return Response({
+                'success': False,
+                'error': 'Failed to generate dashboard statistics',
+                'detail': str(e) if request.user.is_staff else None
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-#     def _get_admin_dashboard(self):
-#         """Dashboard for admin users"""
-#         today = timezone.now()
-#         current_year = today.year
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """
+        Quick summary - just counts, no detailed items.
         
-#         # All projects
-#         all_projects = Project.objects.all()
-#         projects_by_status = all_projects.values('status').annotate(
-#             count=Count('id')
-#         )
+        Useful for badges/notifications without full data load.
+        """
+        user = request.user
+        role = getattr(user, 'role', 'staff')
         
-#         # Overdue projects
-#         overdue_projects = []
-#         for project in all_projects.filter(status__in=['pending', 'in_progress']):
-#             if project.end_date and project.end_date < today:
-#                 days_overdue = (today - project.end_date).days
-#                 overdue_projects.append({
-#                     'id': str(project.id),
-#                     'name': project.name,
-#                     'owner': project.owner.get_full_name(),
-#                     'days_overdue': days_overdue,
-#                     'end_date': project.end_date,
-#                     'status': project.status,
-#                 })
-        
-#         # Leave stats
-#         leave_allocations = LeaveAllocation.objects.filter(year=current_year)
-#         total_annual_allocated = leave_allocations.aggregate(
-#             Sum('annual_leave_days')
-#         )['annual_leave_days__sum'] or 0
-        
-#         total_annual_used = leave_allocations.aggregate(
-#             Sum('annual_used')
-#         )['annual_used__sum'] or 0
-        
-#         # Current leaves
-#         current_leaves = LeaveRequest.objects.filter(
-#             status='approved',
-#             start_date__lte=today,
-#             end_date__gte=today
-#         ).select_related('user')
-        
-#         people_on_leave = [{
-#             'user_id': leave.user.id,
-#             'user': leave.user.get_full_name(),
-#             'leave_type': leave.get_leave_type_display(),
-#             'start_date': leave.start_date,
-#             'end_date': leave.end_date,
-#         } for leave in current_leaves]
-        
-#         pending_leaves = LeaveRequest.objects.filter(
-#             status='pending'
-#         ).count()
-        
-#         # User stats
-#         total_users = User.objects.count()
-#         active_users = User.objects.filter(is_active=True).count()
-        
-#         # Recent activities
-#         activities = self._get_admin_activities()
-        
-#         return {
-#             'overview': {
-#                 'total_users': total_users,
-#                 'active_users': active_users,
-#                 'total_projects': all_projects.count(),
-#                 'overdue_projects_count': len(overdue_projects),
-#                 'people_on_leave_count': len(people_on_leave),
-#                 'pending_leave_requests': pending_leaves,
-#             },
-#             'projects': {
-#                 'total': all_projects.count(),
-#                 'by_status': list(projects_by_status),
-#                 'overdue': overdue_projects,
-#             },
-#             'leave': {
-#                 'total_annual_allocated': total_annual_allocated,
-#                 'total_annual_used': total_annual_used,
-#                 'total_annual_remaining': total_annual_allocated - total_annual_used,
-#                 'current_leaves': people_on_leave,
-#                 'pending_requests': pending_leaves,
-#             },
-#             'recent_activities': activities,
-#         }
-    
-#     def _get_user_activities(self, user):
-#         """Get recent activities for a user"""
-#         activities = []
-        
-#         # Recent comments
-#         recent_project_comments = ProjectComment.objects.filter(
-#             user=user
-#         ).select_related('project').order_by('-created_at')[:5]
-        
-#         recent_milestone_comments = MilestoneComment.objects.filter(
-#             user=user
-#         ).select_related('milestone').order_by('-created_at')[:5]
-        
-#         # Recent leave requests
-#         recent_leaves = LeaveRequest.objects.filter(
-#             user=user
-#         ).order_by('-created_at')[:5]
-        
-#         for comment in recent_project_comments:
-#             activities.append({
-#                 'type': 'comment',
-#                 'action': 'Commented on project',
-#                 'target': comment.project.name,
-#                 'timestamp': comment.created_at,
-#                 'details': comment.content[:100]
-#             })
-        
-#         for comment in recent_milestone_comments:
-#             activities.append({
-#                 'type': 'milestone_comment',
-#                 'action': 'Commented on milestone',
-#                 'target': comment.milestone.title,
-#                 'timestamp': comment.created_at,
-#                 'details': comment.content[:100]
-#             })
-        
-#         for leave in recent_leaves:
-#             activities.append({
-#                 'type': 'leave',
-#                 'action': f'Leave request {leave.status}',
-#                 'target': leave.get_leave_type_display(),
-#                 'timestamp': leave.created_at,
-#                 'details': f"{leave.num_days} days"
-#             })
-        
-#         activities.sort(key=lambda x: x['timestamp'], reverse=True)
-#         return activities[:10]
-    
-#     def _get_admin_activities(self):
-#         """Get recent activities for admin view"""
-#         activities = []
-        
-#         recent_comments = ProjectComment.objects.select_related(
-#             'user', 'project'
-#         ).order_by('-created_at')[:10]
-        
-#         recent_projects = Project.objects.select_related(
-#             'owner'
-#         ).order_by('-created_at')[:5]
-        
-#         for comment in recent_comments:
-#             activities.append({
-#                 'type': 'comment',
-#                 'user': comment.user.get_full_name(),
-#                 'user_id': comment.user.id,
-#                 'action': 'Commented on project',
-#                 'target': comment.project.name,
-#                 'timestamp': comment.created_at,
-#             })
-        
-#         for project in recent_projects:
-#             activities.append({
-#                 'type': 'project',
-#                 'user': project.owner.get_full_name(),
-#                 'user_id': project.owner.id,
-#                 'action': 'Created project',
-#                 'target': project.name,
-#                 'timestamp': project.created_at,
-#             })
-        
-#         activities.sort(key=lambda x: x['timestamp'], reverse=True)
-#         return activities[:15]
+        try:
+            if role == 'admin':
+                from employee.models import LeaveRequest, EmployeeContract
+                from projects.models import SupervisorReview, Activity
+                from django.utils import timezone
+                
+                summary = {
+                    'pending_leaves': LeaveRequest.objects.filter(status='pending').count(),
+                    'pending_reviews': SupervisorReview.objects.filter(
+                        review_level='admin',
+                        status__in=['not_started', 'started']
+                    ).count(),
+                    'contracts_expiring_30d': EmployeeContract.objects.filter(
+                        is_current=True,
+                        is_expired=False,
+                        end_date__lte=timezone.now().date() + timezone.timedelta(days=30),
+                        end_date__gte=timezone.now().date()
+                    ).count(),
+                    'overdue_activities': Activity.objects.filter(
+                        deadline__lt=timezone.now(),
+                        status__in=['not_started', 'in_progress']
+                    ).count(),
+                }
+            
+            elif role == 'supervisor':
+                from employee.models import LeaveRequest, EmployeeSupervisor
+                from projects.models import SupervisorReview, Activity
+                from django.utils import timezone
+                from django.db.models import Q
+                
+                supervised = EmployeeSupervisor.objects.filter(
+                    supervisor=user,
+                    is_active=True
+                ).values_list('employee_id', flat=True)
+                
+                summary = {
+                    'team_pending_leaves': LeaveRequest.objects.filter(
+                        user_id__in=supervised,
+                        status='pending'
+                    ).count(),
+                    'pending_reviews': SupervisorReview.objects.filter(
+                        reviewer=user,
+                        review_level='supervisor',
+                        status__in=['not_started', 'started']
+                    ).count(),
+                    'my_activities_due_soon': Activity.objects.filter(
+                        Q(accountable=user) | Q(responsible=user),
+                        deadline__gte=timezone.now(),
+                        deadline__lt=timezone.now() + timezone.timedelta(days=7),
+                        status__in=['not_started', 'in_progress']
+                    ).count(),
+                    'my_overdue': Activity.objects.filter(
+                        Q(accountable=user) | Q(responsible=user),
+                        deadline__lt=timezone.now(),
+                        status__in=['not_started', 'in_progress']
+                    ).count(),
+                }
+            
+            else:  # staff
+                from projects.models import Activity, Milestone
+                from django.utils import timezone
+                
+                summary = {
+                    'activities_in_progress': Activity.objects.filter(
+                        responsible=user,
+                        status='in_progress'
+                    ).count(),
+                    'activities_due_soon': Activity.objects.filter(
+                        responsible=user,
+                        deadline__gte=timezone.now(),
+                        deadline__lt=timezone.now() + timezone.timedelta(days=7),
+                        status__in=['not_started', 'in_progress']
+                    ).count(),
+                    'activities_overdue': Activity.objects.filter(
+                        responsible=user,
+                        deadline__lt=timezone.now(),
+                        status__in=['not_started', 'in_progress']
+                    ).count(),
+                    'upcoming_milestones': Milestone.objects.filter(
+                        assigned_to=user,
+                        status__in=['not_started', 'in_progress'],
+                        due_date__gte=timezone.now()
+                    ).count(),
+                }
+            
+            return Response({
+                'role': role,
+                'summary': summary
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Dashboard summary failed: {e}", exc_info=True)
+            return Response({
+                'error': 'Failed to generate summary'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+
+
+

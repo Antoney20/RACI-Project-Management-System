@@ -260,7 +260,6 @@ class EmployeeContractViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(contract)
         return Response(serializer.data)
     
-    # New action endpoints - admin only
     
     @action(detail=True, methods=['post'])
     def deactivate(self, request, pk=None):

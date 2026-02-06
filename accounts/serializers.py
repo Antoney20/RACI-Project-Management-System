@@ -204,66 +204,78 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
 
 
 # class LoginSerializer(serializers.Serializer):
-#     username_or_email = serializers.CharField()
-#     password = serializers.CharField(write_only=True)
-    
+#     username_or_email = serializers.CharField(required=True)
+#     password = serializers.CharField(write_only=True, required=True)
+#     device_id = serializers.CharField(max_length=128, required=True)
+#     device_name = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 #     def validate(self, data):
-#         username_or_email = data.get('username_or_email')
-#         password = data.get('password')
-        
+#         username_or_email = data['username_or_email']
+#         password = data['password']
+
 #         user = CustomUser.objects.filter(
-#             Q(username=username_or_email) | Q(email=username_or_email)
+#             Q(username__iexact=username_or_email) |
+#             Q(email__iexact=username_or_email)
 #         ).first()
-        
+
 #         if not user:
-#             raise serializers.ValidationError("Invalid username or email.")
-        
-#         if user.status == UserStatus.BLOCKED:
-#             raise serializers.ValidationError(
-#                 "Your account has been blocked. Please contact CEMA-Africa support."
-#             )
-        
-#         if not user.check_password(password):
-#             user.failed_login_attempts += 1
-#             user.save(update_fields=['failed_login_attempts'])
-#             raise serializers.ValidationError("Invalid password.")
-        
+#             raise serializers.ValidationError("Invalid credentials.")
+
 #         if not user.is_active:
-#             raise serializers.ValidationError(
-#                 "Your account is inactive. Please contact support."
-#             )
-        
-        
-#         return {"user": user}
+#             raise serializers.ValidationError("Account inactive.")
+
+#         if not user.check_password(password):
+#             raise serializers.ValidationError("Invalid credentials.")
+
+#         data['user'] = user
+#         return data
 
 class LoginSerializer(serializers.Serializer):
-    username_or_email = serializers.CharField(required=True)
-    password = serializers.CharField(write_only=True, required=True)
-    device_id = serializers.CharField(max_length=128, required=True)
-    device_name = serializers.CharField(required=False, allow_blank=True, default="")
+    username_or_email = serializers.CharField(
+        required=True,
+        trim_whitespace=True
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={"input_type": "password"}
+    )
+    device_id = serializers.CharField(
+        max_length=128,
+        required=True
+    )
+    device_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=""
+    )
 
+    def validate_username_or_email(self, value):
+        """
+        Normalize login identifier.
+        Do NOT check existence here (prevents user enumeration).
+        """
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("This field is required.")
+        return value.lower()
+
+    def validate_password(self, value):
+        """
+        Basic sanity check only.
+        Authentication happens in the view.
+        """
+        if len(value) < 1:
+            raise serializers.ValidationError("Password is required.")
+        return value
 
     def validate(self, data):
-        username_or_email = data['username_or_email']
-        password = data['password']
-
-        user = CustomUser.objects.filter(
-            Q(username__iexact=username_or_email) |
-            Q(email__iexact=username_or_email)
-        ).first()
-
-        if not user:
-            raise serializers.ValidationError("Invalid credentials.")
-
-        if not user.is_active:
-            raise serializers.ValidationError("Account inactive.")
-
-        if not user.check_password(password):
-            raise serializers.ValidationError("Invalid credentials.")
-
-        data['user'] = user
+        """
+        Cross-field validation only.
+        No authentication, no DB hits.
+        """
         return data
-
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)

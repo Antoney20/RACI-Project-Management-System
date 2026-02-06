@@ -14,8 +14,10 @@ from django.http import HttpRequest
 from rest_framework.viewsets import ViewSet
 from rest_framework.permissions import IsAuthenticated 
 
+
 from notifications.service import NotificationService
 from projects.utils.review_service import ActivityReportService
+from projects.utils.reviews import create_or_reset_supervisor_review
 from projects.utils.roles import is_admin, is_supervisor
 
 from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
@@ -320,37 +322,7 @@ class ActivityViewSet(viewsets.ModelViewSet):
         })
 
     def _create_supervisor_review(self, activity):
-        """
-        Create supervisor review when activity is marked complete.
-        Uses get_or_create to avoid duplicates.
-        """
-        # Get accountable user as default supervisor
-        supervisor = activity.accountable
-        
-        review, created = SupervisorReview.objects.get_or_create(
-            activity=activity,
-            review_level='supervisor',  
-            defaults={
-                'reviewer': supervisor, 
-                'status': 'not_started'
-            }
-        )
-        
-        if not created and review.is_complete:
-            review.status = 'not_started'
-            review.started_at = None
-            review.completed_at = None
-            review.is_complete = False
-            review.is_supervisor_approved = None
-            review.supervisor_approved_at = None
-            review.move_to_admin = False
-            review.is_admin_approved = None
-            review.admin_approved_at = None
-            review.notes = ''
-            review.save()
-        
-        return review
-
+        return create_or_reset_supervisor_review(activity)
 
     @action(detail=True, methods=['get', 'post'])
     def comments(self, request, pk=None):
@@ -894,7 +866,6 @@ class ActivityReportsViewSet(ViewSet):
             return Response({'error': f'Failed to: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
    
    
-    
     
     
 

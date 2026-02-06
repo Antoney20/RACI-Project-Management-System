@@ -1,0 +1,40 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block header_title %}Leave Approval Required{% endblock %}
+
+{% block content %}
+<p><strong>{{ employee_name }}</strong> has submitted a leave request that requires your approval.</p>
+
+<div class="info-box">
+    <table class="details-table">
+        <tr>
+            <td>Employee</td>
+            <td><strong>{{ employee_name }}</strong></td>
+        </tr>
+        <tr>
+            <td>Leave Type</td>
+            <td>{{ leave_type|title }}</td>
+        </tr>
+        <tr>
+            <td>Start Date</td>
+            <td>{{ start_date|date:"F j, Y" }}</td>
+        </tr>
+        <tr>
+            <td>End Date</td>
+            <td>{{ end_date|date:"F j, Y" }}</td>
+        </tr>
+        <tr>
+            <td>Duration</td>
+            <td><strong>{{ days_requested }} day{{ days_requested|pluralize }}</strong></td>
+        </tr>
+    </table>
+</div>
+
+<p>Please review this request to help {{ employee_name }} plan accordingly.</p>
+{% endblock %}
+
+{% block action_button %}
+<div class="button-container">
+    <a href="{{ action_url }}" class="button">Review Leave Request</a>
+</div>
+{% endblock %}

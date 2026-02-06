@@ -146,19 +146,18 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 
 CRONJOBS = [
     # Every day at 8:00 AM - Move completed projects to review
-    ('0 8 * * *', 'mint.cron.for_review.move_completed_projects_to_review'),
+    ('0 6-17 * * 1-5', 'projects.services.for_review.move_completed_activities_to_review'),
     
     ('0 9 * * *', 'notifications.jobs.notify_pending_leaves', '>> /var/log/cron_leaves.log'),
     
-    # Every day at 8 AM - Check activities due soon
     ('0 8 * * *', 'notifications.jobs.notify_activities_due', '>> /var/log/cron_activities.log'),
     
     # Every day at 10 AM - Check overdue activities
     ('0 10 * * *', 'notifications.jobs.notify_overdue_activities', '>> /var/log/cron_overdue.log'),
     
     # Every day at 9 AM - Check pending reviews
-    ('0 9 * * *', 'notifications.jobs.notify_pending_reviews', '>> /var/log/cron_reviews.log'),
-    
+    ('*/5 9-19 * * 1-5', 'notifications.jobs.notify_pending_reviews', '>> /var/log/cron_reviews.log'),
+ 
     # Every Monday at 8 AM - Check expiring contracts
     ('0 8 * * 1', 'notifications.jobs.notify_expiring_contracts', '>> /var/log/cron_contracts.log'),
     

@@ -274,11 +274,6 @@ class TokenBlacklist(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.token_type}"
 
-
-
-
-
-
 class EmailLog(models.Model):
     STATUS_CHOICES = [
         ('initial', 'Initial'),
@@ -424,6 +419,65 @@ class LoginAttempt(models.Model):
             models.Index(fields=['ip_address']),
             models.Index(fields=['status']),
         ]
+        
+        
+
+class NotificationPreference(models.Model):
+    """User preferences for notification emails"""
+    
+    ALERT_TIMING_CHOICES = [
+        (1, '1 Day Before'),
+        (3, '3 Days Before'),
+        (7, '7 Days Before'),
+        (14, '14 Days Before'),
+    ]
+    
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences'
+    )
+    
+    # Email notification toggles by category
+    email_leave_approvals = models.BooleanField(default=True)
+    email_activities = models.BooleanField(default=True)
+    email_reviews = models.BooleanField(default=True)
+    email_contracts = models.BooleanField(default=True)
+    
+    # Alert timing preferences
+    activity_due_alert_days = models.IntegerField(
+        choices=ALERT_TIMING_CHOICES,
+        default=3,
+        help_text="Days before deadline to send alert"
+    )
+    contract_expiry_alert_days = models.IntegerField(
+        choices=ALERT_TIMING_CHOICES,
+        default=14,
+        help_text="Days before contract expiry to send alert"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = "notification_preference"
+    
+    def __str__(self):
+        return f"Preferences for {self.user.username}"
+    
+    def should_send_email(self, notification_type):
+        """Check if user wants email for this notification type"""
+        type_mapping = {
+            'leave_pending': self.email_leave_approvals,
+            'activity_assigned': self.email_activities,
+            'activity_due': self.email_activities,
+            'activity_overdue': self.email_activities,
+            'review_needed': self.email_reviews,
+            'contract_expiring': self.email_contracts,
+        }
+        return type_mapping.get(notification_type, True)
+
+
 
 auditlog.register(CustomUser)
 auditlog.register(TrustedDevice)

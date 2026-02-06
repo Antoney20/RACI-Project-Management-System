@@ -1,0 +1,63 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block header_title %}Contract Expirations – Action Required{% endblock %}
+
+{% block content %}
+<p style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 4px;">
+    <strong>Important:</strong> {{ count }} contract{{ count|pluralize }} {{ "is" if count == 1 else "are" }} expiring soon.
+</p>
+
+<p>
+    The following employment contracts require attention. 
+    The most urgent one expires in <strong>{{ most_urgent_days }} day{{ most_urgent_days|pluralize }}</strong>.
+</p>
+
+<div class="info-box">
+    <table class="details-table" style="width:100%; border-collapse: collapse;">
+        <thead>
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Employee</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Contract Type</th>
+                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Days Left</th>
+                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Expires On</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in contracts %}
+            <tr style="{% if forloop.first %}font-weight: bold; background-color: #fff5e6;{% endif %}">
+                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{ item.employee_name }}</td>
+                <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{ item.contract_type }}</td>
+                <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">
+                    <strong>{{ item.days_remaining }}</strong>
+                </td>
+                <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">
+                    {{ item.end_date|date:"F j, Y" }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="4" style="padding: 15px; text-align: center; color: #6c757d;">
+                    No contracts in this notification window.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p><strong>Action required:</strong> Please review the list above and initiate renewal discussions or process terminations as appropriate before the expiration dates.</p>
+
+<p style="margin-top: 20px; font-size: 0.95em; color: #6c757d;">
+    View all contracts → <a href="{{ action_url|full_url }}" style="color: #007bff;">HR Contracts Dashboard</a>
+</p>
+{% endblock %}
+
+{% block action_button %}
+
+<div style="text-align: center; margin: 25px 0;">
+    <a href="{{ action_url|full_url }}" 
+       style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+        Go to Contracts Dashboard
+    </a>
+</div>
+{% endblock %}
