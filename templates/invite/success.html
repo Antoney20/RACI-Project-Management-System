@@ -1,67 +1,41 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-        }
-        .wrapper {
-            padding: 20px;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background: #ffffff;
-            border-radius: 8px;
-            padding: 30px;
-            text-align: center;
-        }
-        h2 {
-            color: #27aae1;
-            margin-bottom: 15px;
-        }
-        p {
-            color: #555;
-            font-size: 15px;
-            margin: 10px 0;
-        }
-        .footer {
-            margin-top: 25px;
-            font-size: 13px;
-            color: #888;
-        }
-    </style>
-</head>
-<body>
-<div class="wrapper">
-    <div class="container">
-        <h2>Welcome to RACI  🎉</h2>
+{% extends "emails/base.html" %}
 
-        <p>Hello <strong>{{ user_name }}</strong>,</p>
+{% block header_title %}
+Welcome to RACI 
+{% endblock %}
 
-        <p>
-            Your account has been successfully activated. <br/>
-            You can now log in to get started
-        </p>
-  
-        <div class="footer">
-            <p>
-                Need help? Contact us at
-                <a href="mailto:{{ support_email }}">{{ support_email }}</a>
-            </p>
-             <p><strong>Best regards,</strong><br>
-                    RACI 
-                </p>
-                <p style="margin-top: 15px; color: #aaa;">
-                    © {{ current_year }} CEMA. All rights reserved.
-                </p>
-        </div>
-    </div>
+{% block content %}
+<p style="font-size:16px; color:#444;">
+    Your account has been successfully activated.
+</p>
+
+<p>
+    You can now log in and start using <strong>RACI</strong> to manage your
+    activities, collaborate with your team, and stay on top of your work.
+</p>
+
+<div class="info-box">
+    If you do not recognize this activity or did not request this account,<br/>
+    please contact us immediately  so we can assist you..
 </div>
-</body>
-</html>
+{% endblock %}
 
+{% block action_button %}
+<div class="button-container">
+    <a
+        href="{{ login_url }}"
+        role="button"
+        style="
+            display:inline-block;
+            padding:14px 36px;
+            background-color:#fe7105;
+            color:#ffffff;
+            font-size:15px;
+            font-weight:600;
+            border-radius:6px;
+        "
+    >
+        Log in to RACI
+    </a>
+</div>
+{% endblock %}

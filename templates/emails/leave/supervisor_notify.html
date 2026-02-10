@@ -1,36 +1,48 @@
-<h3>Hello {{ supervisor_name }},</h3>
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Leave Request Awaiting Your Approval
+{% endblock %}
+
+{% block content %}
 
 <p>
-A new leave request has been submitted for your review.
+    A new leave request has been submitted and requires your review.
+    Please find the details below:
 </p>
 
-<ul>
-    <li><strong>Employee:</strong> {{ employee_name }}</li>
-    <li><strong>Leave Type:</strong> {{ leave_type }}</li>
-    <li><strong>From date:</strong> {{ start_date }}</li>
-    <li><strong>To date:</strong> {{ end_date }}</li>
-    <li><strong>No of Days:</strong> {{ days }}</li>
-</ul>
+<table class="details-table" cellpadding="0" cellspacing="0">
+    <tr>
+        <td>Employee</td>
+        <td>{{ employee_name }}</td>
+    </tr>
+    <tr>
+        <td>Leave Type</td>
+        <td>{{ leave_type }}</td>
+    </tr>
+    <tr>
+        <td>Start Date</td>
+        <td>{{ start_date }}</td>
+    </tr>
+    <tr>
+        <td>End Date</td>
+        <td>{{ end_date }}</td>
+    </tr>
+    <tr>
+        <td>Number of Days</td>
+        <td>{{ days }}</td>
+    </tr>
+</table>
 
-<div style="margin: 30px 0; text-align: center;">
-    <a
-        href="https://raci.cema.africa/a/u/dash/my-team/approvals"
-        style="
-            display: inline-block;
-            padding: 14px 32px;
-            background-color: #fe7105;
-            color: #ffffff;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 15px;
-        "
-    >
+<div class="info-box">
+    Kindly review this request.
+</div>
+{% endblock %}
+
+{% block action_button %}
+<div class="button-container">
+    <a href="https://raci.cema.africa/a/u/dash/my-team/approvals" class="button">
         Review & Approve Leave
     </a>
 </div>
-
-
-<p style="color:#888; margin-top: 25px;">
-    © {{ current_year }} CEMA
-</p>
+{% endblock %}

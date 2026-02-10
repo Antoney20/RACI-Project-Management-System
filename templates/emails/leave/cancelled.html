@@ -1,14 +1,37 @@
-<h3>Hello {{ user_name }},</h3>
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Leave Request Cancelled
+{% endblock %}
+
+{% block content %}
 
 <p>
-Your leave request has been <strong>cancelled</strong>.
+    This is to confirm that your leave request has been successfully
+    <strong>cancelled</strong>.
 </p>
+
+<table class="details-table" cellpadding="0" cellspacing="0">
+    <tr>
+        <td>Leave Type</td>
+        <td>{{ leave_type }}</td>
+    </tr>
+    <tr>
+        <td>Start Date</td>
+        <td>{{ start_date }}</td>
+    </tr>
+    <tr>
+        <td>End Date</td>
+        <td>{{ end_date }}</td>
+    </tr>
+    <tr>
+        <td>Number of Days</td>
+        <td>{{ days }}</td>
+    </tr>
+</table>
 
 <p>
-<strong>{{ leave_type }}</strong><br>
-{{ start_date }} → {{ end_date }} ({{ days }} days)
+    If this cancellation was unintentional, you may submit a new leave request
+    at any time.
 </p>
-
-<p>If this was a mistake, you can submit a new request.</p>
-
-<p style="color:#888;">© {{ current_year }} CEMA</p>
+{% endblock %}

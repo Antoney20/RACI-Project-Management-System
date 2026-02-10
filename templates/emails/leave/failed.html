@@ -1,12 +1,22 @@
-<h3>Hello {{ user_name }},</h3>
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Leave Request Not Submitted
+{% endblock %}
+
+{% block content %}
 
 <p>
-Your leave request could not be submitted.
+    Your leave request could not be submitted successfully.
 </p>
 
-<p><strong>Reason:</strong></p>
-<p>{{ reason }}</p>
+<div class="info-box">
+    <strong>Reason:</strong><br>
+    {{ reason }}
+</div>
 
-<p>Please review and try again.</p>
-
-<p style="color:#888;">© {{ current_year }} CEMA</p>
+<p>
+    Please review the information provided and try submitting your request again.
+    If the issue persists, contact support for assistance.
+</p>
+{% endblock %}

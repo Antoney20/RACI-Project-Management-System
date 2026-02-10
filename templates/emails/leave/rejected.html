@@ -1,17 +1,40 @@
-<h3>Hello {{ user_name }},</h3>
+{% extends "emails/base.html" %}
 
-<p>
-Unfortunately, your <strong>{{ leave_type }}</strong> leave request
-was <strong>not approved</strong>.
-</p>
+{% block header_title %}
+Leave Request Not Approved
+{% endblock %}
 
-<p><strong>Reason:</strong></p>
-<p>{{ rejection_reason }}</p>
+{% block content %}
 
-<p>
-Dates requested: {{ start_date }} → {{ end_date }} ({{ days }} days)
-</p>
 
-<p>Please feel free to reach out if you need clarification.</p>
 
-<p style="color:#888;">© {{ current_year }} CEMA</p>
+<p> Unfortunately, your <strong>{{ leave_type }}</strong> leave request was <strong>not approved</strong>.
+ </p>
+
+
+<table class="details-table" cellpadding="0" cellspacing="0">
+    <tr>
+        <td>Leave Type</td>
+        <td>{{ leave_type }}</td>
+    </tr>
+    <tr>
+        <td>Start Date</td>
+        <td>{{ start_date }}</td>
+    </tr>
+    <tr>
+        <td>End Date</td>
+        <td>{{ end_date }}</td>
+    </tr>
+    <tr>
+        <td>Number of Days</td>
+        <td>{{ days }}</td>
+    </tr>
+</table>
+
+<div class="info-box">
+    <strong>Reason for rejection:</strong><br>
+    {{ rejection_reason }}
+</div>
+
+
+{% endblock %}
