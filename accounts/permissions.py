@@ -1,5 +1,5 @@
 from rest_framework import permissions
-
+from rest_framework.permissions import IsAuthenticated
 
 class IsAdminUser(permissions.BasePermission):
     """
@@ -52,3 +52,14 @@ class CanManageUser(permissions.BasePermission):
             return obj == user
 
         return False
+    
+    
+class IsSupervisorOrAdmin(IsAuthenticated):
+    """Only supervisors and admins can access team management"""
+    
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        
+        user_role = getattr(request.user, 'role', 'staff')
+        return user_role in ['supervisor', 'admin']

@@ -25,8 +25,6 @@ class EmployeeSupervisor(models.Model):
     def __str__(self):
         return f"{self.employee} → {self.supervisor}"
 
-
-
 class HolidayType(models.TextChoices):
     PUBLIC_NATIONAL = "public_national", "Public Holiday (National)"
     PUBLIC_GLOBAL = "public_global", "Public Holiday (Global)"

@@ -14,6 +14,7 @@ router.register(r'dashboard', views.DashboardStatsViewSet, basename='dashboard')
 
 
 
+
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
     path('auth/login/', views.LoginView.as_view(), name='login'),
@@ -38,5 +39,18 @@ urlpatterns = [
     path('', include(router.urls)),
     
     # path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
-
+        # Team overview
+    path('myteam/', views.MyTeamView.as_view(), name='myteam-overview'),
+    
+    # Team members management
+    path('myteam/members/', views.MyTeamMembersView.as_view(), name='myteam-members'),
+    path('myteam/members/<uuid:relationship_id>/', views.MyTeamMemberDetailView.as_view(), name='myteam-member-detail'),
+    
+    # Team data endpoints
+    path('myteam/leave-requests/', views.MyTeamLeaveRequestsView.as_view(), name='myteam-leave-requests'),
+    path('myteam/activities/', views.MyTeamActivitiesView.as_view(), name='myteam-activities'),
+    path('myteam/reviews/', views.MyTeamReviewsView.as_view(), name='myteam-reviews'),
 ]
+
+
+

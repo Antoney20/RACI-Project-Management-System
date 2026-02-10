@@ -27,7 +27,6 @@ class AttendanceService:
         # Adjust start_date to be no earlier than user creation date
         effective_start_date = max(start_date, user_created_date)
         
-        # If effective start date is after end date, return empty attendance
         if effective_start_date > end_date:
             return {
                 'user_id': str(user.id),

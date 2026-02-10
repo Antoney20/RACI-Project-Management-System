@@ -9,12 +9,14 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
 from rest_framework import serializers
 
+
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenBlacklistView as SimpleJWTTokenBlacklistView
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.tokens import default_token_generator, PasswordResetTokenGenerator
 from django.utils.encoding import force_bytes, force_str
+from django.shortcuts import get_object_or_404
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.conf import settings
 from django.utils import timezone
@@ -22,8 +24,11 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from django.db.models import Q,F, Count, Sum
 
+from accounts.permissions import IsSupervisorOrAdmin
 from accounts.service.stats import DashboardStatsService
+from accounts.service.team import MyTeamService
 from accounts.utils.client import get_client_ip, get_user_agent, parse_user_agent
+from employee.models import EmployeeSupervisor
 from mint.models import LeaveAllocation, LeaveRequest
 # MilestoneComment, Project, ProjectComment 
 
@@ -84,49 +89,6 @@ class RegisterView(generics.CreateAPIView):
                 'message': 'Registration failed. Please try again.',
                 'errors': getattr(e, 'detail', str(e))
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-# class LoginView(APIView):
-#     """
-#     User login - returns access and refresh tokens
-#     Accepts username or email with password
-#     """
-#     permission_classes = [AllowAny]
-
-#     def post(self, request):
-#         try:
-#             serializer = LoginSerializer(data=request.data)
-#             serializer.is_valid(raise_exception=True)
-
-#             user = serializer.validated_data['user']
-
-#             # Generate tokens
-#             refresh = RefreshToken.for_user(user)
-#             access_token = refresh.access_token
-
-#             # Update last login
-#             user.last_login_at = timezone.now()
-#             user.failed_login_attempts = 0
-#             user.save(update_fields=['last_login_at', 'failed_login_attempts'])
-
-#             login(request, user)
-#             logger.info(f"User logged in: {user.email}")
-
-#             return Response({
-#                 'success': True,
-#                 'message': 'Login successful',
-#                 'user': UserDetailSerializer(user).data,
-#                 'tokens': {
-#                     'access': str(access_token),
-#                     'refresh': str(refresh)
-#                 }
-#             }, status=status.HTTP_200_OK)
-
-#         except Exception as e:
-#             logger.error(f"Login error: {str(e)}")
-#             return Response({
-#                 'success': False,
-#                 'message': 'Login failed. Please try again.'
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
@@ -1189,6 +1151,263 @@ class DashboardStatsViewSet(viewsets.ViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class MyTeamView(APIView):
+    """
+    Team overview - all key stats in one call.
+    
+    GET /myteam/
+    Returns:
+        - Team member count
+        - Members on leave today
+        - Pending leave requests
+        - Pending reviews
+        - Overdue activities count
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def get(self, request):
+        try:
+            team_members = MyTeamService.get_team_members(request.user)
+            leave_requests = MyTeamService.get_team_leave_requests(
+                request.user,
+                status_filter='pending'
+            )
+            pending_reviews = MyTeamService.get_pending_reviews(request.user)
+            
+            # Quick stats
+            on_leave_count = sum(1 for m in team_members if m['on_leave']['status'])
+            overdue_activities = sum(m['activities']['overdue'] for m in team_members)
+            
+            return Response({
+                'success': True,
+                'summary': {
+                    'total_members': len(team_members),
+                    'on_leave_today': on_leave_count,
+                    'pending_leave_requests': len(leave_requests),
+                    'pending_reviews': len(pending_reviews),
+                    'overdue_activities': overdue_activities
+                },
+                'members_preview': team_members[:5],  # First 5 for overview
+                'pending_leave_requests': leave_requests[:5],
+                'pending_reviews': pending_reviews[:5]
+            })
+        
+        except Exception as e:
+            logger.error(f"MyTeam overview failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to load team overview'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyTeamMembersView(APIView):
+    """
+    Team member management.
+    
+    GET /myteam/members/ - List all members with detailed stats
+    POST /myteam/members/ - Add new member to team
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def get(self, request):
+        """List all team members with full details"""
+        try:
+            members = MyTeamService.get_team_members(request.user)
+            
+            return Response({
+                'success': True,
+                'count': len(members),
+                'members': members
+            })
+        
+        except Exception as e:
+            logger.error(f"MyTeam members list failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to load team members'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Add new member to team"""
+        try:
+            employee_id = request.data.get('employee_id')
+            
+            if not employee_id:
+                return Response({
+                    'success': False,
+                    'error': 'employee_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if employee exists
+            employee = get_object_or_404(User, id=employee_id)
+            
+            # Check if relationship already exists
+            existing = EmployeeSupervisor.objects.filter(
+                employee=employee,
+                supervisor=request.user
+            ).first()
+            
+            if existing:
+                if existing.is_active:
+                    return Response({
+                        'success': False,
+                        'error': 'This employee is already in your team'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    # Reactivate
+                    existing.is_active = True
+                    existing.save()
+                    relationship = existing
+            else:
+                # Create new relationship
+                relationship = EmployeeSupervisor.objects.create(
+                    employee=employee,
+                    supervisor=request.user,
+                    is_active=True
+                )
+            
+            return Response({
+                'success': True,
+                'message': f'{employee.get_full_name()} added to your team',
+                'relationship_id': str(relationship.id)
+            }, status=status.HTTP_201_CREATED)
+        
+        except User.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Employee not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        except Exception as e:
+            logger.error(f"Add team member failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to add team member'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyTeamMemberDetailView(APIView):
+    """
+    Individual team member management.
+    
+    DELETE /myteam/members/<relationship_id>/ - Remove from team
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def delete(self, request, relationship_id):
+        """Remove member from team (soft delete)"""
+        try:
+            relationship = get_object_or_404(
+                EmployeeSupervisor,
+                id=relationship_id,
+                supervisor=request.user
+            )
+            
+            relationship.is_active = False
+            relationship.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Team member removed'
+            })
+        
+        except Exception as e:
+            logger.error(f"Remove team member failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to remove team member'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyTeamLeaveRequestsView(APIView):
+    """
+    Team leave request management.
+    
+    GET /myteam/leave-requests/?status=pending
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def get(self, request):
+        try:
+            status_filter = request.query_params.get('status', None)
+            
+            leave_requests = MyTeamService.get_team_leave_requests(
+                request.user,
+                status_filter=status_filter
+            )
+            
+            return Response({
+                'success': True,
+                'count': len(leave_requests),
+                'leave_requests': leave_requests
+            })
+        
+        except Exception as e:
+            logger.error(f"Team leave requests failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to load leave requests'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyTeamActivitiesView(APIView):
+    """
+    Team activities tracking.
+    
+    GET /myteam/activities/?status=in_progress&overdue_only=true
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def get(self, request):
+        try:
+            filters = {}
+            
+            if request.query_params.get('status'):
+                filters['status'] = request.query_params.get('status')
+            
+            if request.query_params.get('overdue_only') == 'true':
+                filters['overdue_only'] = True
+            
+            activities = MyTeamService.get_team_activities(request.user, filters)
+            
+            return Response({
+                'success': True,
+                'count': len(activities),
+                'activities': activities
+            })
+        
+        except Exception as e:
+            logger.error(f"Team activities failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to load team activities'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MyTeamReviewsView(APIView):
+    """
+    Pending supervisor reviews.
+    
+    GET /myteam/reviews/
+    """
+    permission_classes = [IsSupervisorOrAdmin]
+    
+    def get(self, request):
+        try:
+            reviews = MyTeamService.get_pending_reviews(request.user)
+            
+            return Response({
+                'success': True,
+                'count': len(reviews),
+                'reviews': reviews
+            })
+        
+        except Exception as e:
+            logger.error(f"Team reviews failed: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Failed to load pending reviews'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
