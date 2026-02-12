@@ -15,7 +15,6 @@ def move_completed_activities_to_review():
     Runs daily via cron.
     """
     try:
-        # Activities that are completed AND have no supervisor reviews yet
         completed_activities = Activity.objects.filter(
             status='completed'
         ).exclude(

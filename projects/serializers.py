@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
+from .models import ActivityReview, Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
 from mint.models import Sprint
 from employee.models import EmployeeContract
 # from projects.utils.reviews import create_or_reset_supervisor_review
@@ -84,55 +84,6 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'duration_days', 'created_at', 'updated_at']
 
-
-# ACTIVITY SERIALIZERS
-
-# class ActivityCreateSerializer(serializers.ModelSerializer):
-#     project_id = serializers.PrimaryKeyRelatedField(
-#         queryset=Project.objects.all(),
-#         source='project',
-#         write_only=True
-#     )
-#     responsible_id = serializers.PrimaryKeyRelatedField(
-#         queryset=User.objects.all(),
-#         source='responsible',
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     accountable_id = serializers.PrimaryKeyRelatedField(
-#         queryset=User.objects.all(),
-#         source='accountable',
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     consulted_ids = serializers.PrimaryKeyRelatedField(
-#         queryset=User.objects.all(),
-#         source='consulted',
-#         many=True,
-#         write_only=True,
-#         required=False
-#     )
-#     informed_ids = serializers.PrimaryKeyRelatedField(
-#         queryset=User.objects.all(),
-#         source='informed',
-#         many=True,
-#         write_only=True,
-#         required=False
-#     )
-#     order = serializers.IntegerField(read_only=False, required=False)
-
-#     class Meta:
-#         model = Activity
-#         fields = [
-#             'id', 'project_id', 'name', 'description', 'type', 'order',         
-#             'responsible_id', 'accountable_id', 'consulted_ids', 'informed_ids',
-#             'status', 'priority', 'deadline', 'created_at'
-#         ]
-#         read_only_fields = ['id', 'created_at']
-
-
 class ActivityCreateSerializer(serializers.ModelSerializer):
     project_id = serializers.PrimaryKeyRelatedField(
         queryset=Project.objects.all(),
@@ -215,7 +166,7 @@ class ActivityCreateSerializer(serializers.ModelSerializer):
         if activity.status == 'completed':
             view = self.context.get('view')
             if view:
-                view._create_supervisor_review(activity)
+                view._create_accountable_review(activity)
 
         return activity
 
@@ -339,12 +290,9 @@ class ActivityDocumentSerializer(serializers.ModelSerializer):
         if obj.file:
             return obj.file.url
         return None
-    
-  
-  
+
   
 class SupervisorReviewSerializer(serializers.ModelSerializer):
-    # Activity details
     activity_name = serializers.CharField(source='activity.name', read_only=True)
     activity_type = serializers.CharField(source='activity.get_type_display', read_only=True)
     activity_status = serializers.CharField(source='activity.get_status_display', read_only=True)
@@ -354,7 +302,6 @@ class SupervisorReviewSerializer(serializers.ModelSerializer):
     project_id = serializers.UUIDField(source='activity.project.id', read_only=True)
     project_name = serializers.CharField(source='activity.project.name', read_only=True)
     
-    # Responsible person
     responsible = UserMinimalSerializer(source='activity.responsible', read_only=True)
     
     reviewer_details = UserMinimalSerializer(source='reviewer', read_only=True)
@@ -421,3 +368,39 @@ class NotificationSerializer(serializers.ModelSerializer):
             return f"{diff.seconds // 60}m ago"
         else:
             return "just now"
+        
+        
+
+class ActivityReviewSerializer(serializers.ModelSerializer):
+
+    activity_name = serializers.CharField(source='activity.name', read_only=True)
+    activity_type = serializers.CharField(source='activity.get_type_display', read_only=True)
+    activity_status = serializers.CharField(source='activity.get_status_display', read_only=True)
+    activity_priority = serializers.CharField(source='activity.get_priority_display', read_only=True)
+    activity_deadline = serializers.DateTimeField(source='activity.deadline', read_only=True)
+
+    project_id = serializers.UUIDField(source='activity.project.id', read_only=True)
+    project_name = serializers.CharField(source='activity.project.name', read_only=True)
+
+    responsible = UserMinimalSerializer(source='activity.responsible', read_only=True)
+    accountable = UserMinimalSerializer(source='activity.accountable', read_only=True) 
+    reviewer_details = UserMinimalSerializer(source='reviewer', read_only=True)
+    review_level_display = serializers.CharField(source='get_review_level_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    decision_display = serializers.CharField(source='get_decision_display', read_only=True)
+
+    class Meta:
+        model = ActivityReview
+        fields = ['id', 'activity', 'activity_name', 'activity_type', 'activity_status',
+                  'activity_priority', 'activity_deadline', 'project_id', 'project_name',
+                  'responsible', 'accountable', 'reviewer', 'reviewer_details',
+                  'review_level', 'review_level_display', 'status', 'status_display',
+                  'decision', 'decision_display', 'submitted_at', 'decided_at',
+                  'is_complete', 'created_at', 'updated_at']
+
+        read_only_fields = ('id', 'submitted_at', 'decided_at',
+                            'is_complete', 'created_at', 'updated_at')
+        
+        
+        
+        

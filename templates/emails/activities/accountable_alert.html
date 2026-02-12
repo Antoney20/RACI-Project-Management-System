@@ -1,0 +1,32 @@
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Activity Review Required
+{% endblock %}
+
+{% block content %}
+<p>
+    You have been assigned as the <strong>Accountable Supervisor</strong>
+    for the activity:
+</p>
+
+<p>
+    <strong>{{ activity_name }}</strong>
+</p>
+
+<p>
+    The review has been initiated and requires your attention.
+</p>
+
+<div class="button-container">
+    <a href="{{ activity_link }}" class="button">
+        Review Activity
+    </a>
+</div>
+
+<p>
+    Please complete your review.
+</p>
+{% endblock %}
+
+

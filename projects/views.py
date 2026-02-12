@@ -13,20 +13,28 @@ from django.http import HttpRequest
 
 from rest_framework.viewsets import ViewSet
 from rest_framework.permissions import IsAuthenticated 
+from django.contrib.auth import get_user_model
 
 
 from notifications.service import NotificationService
+from projects.services.alert import send_admin_review_alert_email, send_supervisor_review_alert_email
 from projects.utils.review_service import ActivityReportService
-from projects.utils.reviews import create_or_reset_supervisor_review
+from projects.utils.reviews import create_admin_review, create_or_reset_accountable_review, create_supervisor_review
 from projects.utils.roles import is_admin, is_supervisor
 
-from .models import Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority
+from .models import ActivityReview, Notification, Project, Activity, Milestone, ActivityComment, MilestoneComment, ActivityDocument, SupervisorReview, UserActivityPriority,ActivityReviewComment
 from .serializers import (
-    NotificationSerializer, ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
+    ActivityReviewSerializer, NotificationSerializer, ProjectCreateSerializer, ProjectListSerializer, ProjectDetailSerializer,
     ActivityCreateSerializer, ActivityListSerializer, ActivityDetailSerializer,
     MilestoneSerializer, ActivityCommentSerializer, MilestoneCommentSerializer,
     ActivityDocumentSerializer, ReorderSerializer, SupervisorReviewSerializer, UserActivityPrioritySerializer
 )
+
+import logging
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -51,8 +59,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if user.is_staff:
             return Project.objects.all().select_related('created_by', 'sprint')
         
-        # Users see projects where they have activities (through any RACI role)
         return Project.objects.filter(
+            Q(created_by=user) |
             Q(activities__responsible=user) |
             Q(activities__accountable=user) |
             Q(activities__consulted=user) |
@@ -148,9 +156,9 @@ class ActivityViewSet(viewsets.ModelViewSet):
             return Activity.objects.all().select_related(
                 'project', 'responsible', 'accountable'
             ).prefetch_related('consulted', 'informed')
-        
-        # Users see activities where they have any RACI role
+
         return Activity.objects.filter(
+
             Q(responsible=user) | 
             Q(accountable=user) | 
             Q(consulted=user) | 
@@ -230,7 +238,6 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity = self.get_object()
         user = request.user
         
-        # Check permission: Responsible, Accountable, Admin, or Supervisor
         if not (activity.responsible == user or activity.accountable == user or 
                 user.is_admin() or user.is_supervisor()):
             return Response(
@@ -245,8 +252,7 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity.status = 'completed'
         activity.save()
         
-        # Create or update supervisor review
-        self._create_supervisor_review(activity)
+        self._create_accountable_review(activity)
         
         return Response({
             'success': True,
@@ -264,7 +270,6 @@ class ActivityViewSet(viewsets.ModelViewSet):
         activity = self.get_object()
         user = request.user
         
-        # Check permission: only Admin or Supervisor can reorder
         if not (user.is_admin() or user.is_supervisor()):
             return Response(
                 {
@@ -321,8 +326,8 @@ class ActivityViewSet(viewsets.ModelViewSet):
             'new_order': new_order
         })
 
-    def _create_supervisor_review(self, activity):
-        return create_or_reset_supervisor_review(activity)
+    def _create_accountable_review(self, activity):
+        return create_or_reset_accountable_review(activity)
 
     @action(detail=True, methods=['get', 'post'])
     def comments(self, request, pk=None):
@@ -484,6 +489,7 @@ class MilestoneViewSet(viewsets.ModelViewSet):
 
         # Users see milestones for activities they have access to
         return Milestone.objects.filter(
+            Q(created_by=user) |
             Q(activity__responsible=user) | 
             Q(activity__accountable=user) | 
             Q(activity__consulted=user) | 
@@ -548,6 +554,7 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
         
         # Users see documents for activities they have access to
         return ActivityDocument.objects.filter(
+            Q(created_by=user) |
             Q(activity__responsible=user) | 
             Q(activity__accountable=user) | 
             Q(activity__consulted=user) | 
@@ -571,7 +578,339 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
         docs = self.get_queryset().filter(activity_id=activity_id)
         serializer = self.get_serializer(docs, many=True)
         return Response(serializer.data)
-    
+
+
+
+class NewActivityReviewViewSet(viewsets.ModelViewSet):
+    """
+    Activity Review Workflow
+
+    Levels:
+        1. Accountable Review
+        2. Supervisor Review
+        3. Admin Review
+
+    Workflow:
+        - Activity completed → Accountable review created (status='submitted')
+        - Accountable approves + marks complete → Supervisor review created (status='submitted')
+        - Supervisor approves + marks complete → Admin review created (status='submitted')
+        - Admin approves + marks complete → Activity marked approved
+
+    Status Flow:
+        submitted → approved/rejected → mark_complete (triggers next level)
+
+    Access Rules:
+
+    - Admin / Office Admin:
+        - See ALL reviews
+        - Can perform ANY action
+
+    - Accountable:
+        - Can see accountable-level reviews
+        - Only for activities where they are the accountable user
+
+    - Supervisor:
+        - Can see:
+            • Supervisor-level reviews
+            • Reviews where they are reviewer
+            • Reviews where they are consulted or informed
+
+
+    General Rules:
+        - Any assigned reviewer can:
+            • Start review (optional)
+            • Approve review
+            • Reject review
+            • Mark review complete (required to progress)
+        - No admin-only rejection
+    """
+
+    serializer_class = ActivityReviewSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        qs = ActivityReview.objects.select_related(
+            "activity__project",
+            "activity__responsible",
+            "activity__accountable",
+            "reviewer"
+        ).prefetch_related(
+            "activity__consulted",
+            "activity__informed"
+        )
+
+        # Admin sees everything
+        if is_admin(user):
+            return qs
+
+        # Accountable-level reviews
+        accountable_qs = qs.filter(
+            review_level="accountable",
+            activity__accountable=user
+        )
+
+        # Supervisor visibility
+        if is_supervisor(user):
+            supervisor_qs = qs.filter(
+                Q(review_level="supervisor") |
+                Q(reviewer=user) |
+                Q(activity__consulted=user) |
+                Q(activity__informed=user)
+            )
+
+            return (accountable_qs | supervisor_qs).distinct()
+
+        return accountable_qs.distinct()
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        """Optional: Start reviewing (changes status from 'submitted' to 'started')"""
+        review = self.get_object()
+        user = request.user
+
+        if review.status not in ["submitted", "not_started"]:
+            raise ValidationError("Review already started or completed")
+
+        if not is_admin(user) and review.reviewer != user:
+            raise PermissionDenied("You are not assigned to this review")
+
+        review.status = "started"
+        review.started_at = timezone.now()
+        review.save()
+
+        return Response({
+            "detail": "Review started",
+            "review": self.get_serializer(review).data
+        })
+
+
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        review = self.get_object()
+        user = request.user
+
+        if not is_admin(user) and review.reviewer != user:
+            raise PermissionDenied("You are not assigned to this review")
+
+        if review.status in ["approved", "rejected"]:
+            raise ValidationError("Review already completed")
+
+        # 1️⃣ Save approval state
+        review.status = "approved"
+        review.decision = "approved"
+        review.decided_at = timezone.now()
+        review.save()
+
+        # 2️⃣ Create comment (NOT assign)
+        comment_text = request.data.get("comments")
+        if comment_text:
+            ActivityReviewComment.objects.create(
+                review=review,
+                author=user,
+                comment=comment_text
+            )
+
+        # 3️⃣ Response
+        if review.review_level == "accountable":
+            return Response({
+                "detail": "Accountable review approved",
+                "review": self.get_serializer(review).data
+            })
+
+        return Response({
+            "detail": "Review approved. Click 'Mark Complete' to proceed.",
+            "review": self.get_serializer(review).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        """Reject the review"""
+        review = self.get_object()
+        user = request.user
+
+        if not is_admin(user) and review.reviewer != user:
+            raise PermissionDenied("You are not assigned to this review")
+
+        if review.status in ["approved", "rejected"]:
+            raise ValidationError("Review already completed")
+
+        review.status = "rejected"
+        review.decision = "rejected"
+        review.decided_at = timezone.now()
+        review.save()
+
+        return Response({
+            "detail": "Review rejected",
+            "review": self.get_serializer(review).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def mark_complete(self, request, pk=None):
+        review = self.get_object()
+        user = request.user
+
+        if not is_admin(user) and review.reviewer != user:
+            raise PermissionDenied("You are not assigned to this review")
+
+        if review.status == "completed":
+            raise ValidationError("Review already completed")
+
+        reviewer_id = request.data.get("reviewer_id")
+        comments = request.data.get("comments")
+
+        if review.review_level == "accountable":
+
+            if not reviewer_id:
+                raise ValidationError("Please select a supervisor to review next")
+
+            try:
+                supervisor = User.objects.get(id=reviewer_id)
+            except User.DoesNotExist:
+                raise ValidationError("Selected supervisor not found")
+
+            review.status = "completed"
+            review.next_reviewer_id = reviewer_id
+            review.completed_at = timezone.now()
+            review.save()
+
+            comment_text = request.data.get("comments")
+            if comment_text:
+                ActivityReviewComment.objects.create(
+                    review=review,
+                    author=request.user,
+                    comment=comment_text
+                )
+
+            create_supervisor_review(review.activity, supervisor)
+
+            return Response({
+                "detail": "Accountable review completed. Supervisor review created.",
+                "review": self.get_serializer(review).data
+            })
+        if not review.decision:
+            raise ValidationError(
+                "Please approve or reject the review before marking it complete"
+            )
+
+        if review.review_level == "supervisor" and review.decision == "approved":
+            if not reviewer_id:
+                raise ValidationError("Please select an admin to review next")
+
+            try:
+                selected_admin = User.objects.get(id=reviewer_id)
+                if selected_admin.role not in ["admin", "office_admin"]:
+                    raise ValidationError("Selected user must be an admin")
+                review.next_reviewer_id = reviewer_id
+            except User.DoesNotExist:
+                raise ValidationError("Selected admin not found")
+
+
+        comment_text = request.data.get("comments")
+
+        if comment_text:
+            ActivityReviewComment.objects.create(
+                review=review,
+                author=request.user,
+                comment=comment_text
+            )
+
+        review.status = "completed"
+        review.is_complete = True
+        review.completed_at = timezone.now()
+        review.save()
+
+        if review.decision == "approved":
+            self._progress_to_next_level(review)
+
+        return Response({
+            "detail": "Review completed successfully",
+            "review": self.get_serializer(review).data
+        })
+
+
+
+    def _progress_to_next_level(self, review):
+        activity = review.activity
+
+        if review.review_level == "supervisor":
+            admin_id = review.next_reviewer_id
+
+            if not admin_id:
+                logger.warning(f"No admin selected for activity {activity.id}")
+                return
+
+            try:
+                admin = User.objects.get(id=admin_id)
+            except User.DoesNotExist:
+                logger.error(f"Admin {admin_id} not found")
+                return
+
+            create_admin_review(activity, admin)
+
+        elif review.review_level == "admin":
+            activity.status = "approved"
+            activity.save()
+
+
+
+    @action(detail=False, methods=["get"])
+    def admin_desk(self, request):
+        """Get all pending admin reviews"""
+        if not is_admin(request.user):
+            raise PermissionDenied("Admin access required")
+
+        reviews = self.get_queryset().filter(
+            review_level="admin",
+            # status__in=["submitted", "started"], 
+            # is_complete=False
+        )
+        return Response(self.get_serializer(reviews, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def supervisor_desk(self, request):
+        """Get all pending supervisor reviews for current user"""
+        user = request.user
+        
+        if not is_supervisor(user) and not is_admin(user):
+            raise PermissionDenied("Supervisor or Admin access required")
+
+        reviews = self.get_queryset().filter(
+            review_level="supervisor",
+            reviewer=user,
+            is_complete=False
+        ).order_by('-submitted_at')
+        
+        return Response(self.get_serializer(reviews, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def accountable_desk(self, request):
+        """Get all pending accountable reviews for current user"""
+        user = request.user
+        
+        reviews = self.get_queryset().filter(
+            review_level="accountable",
+            activity__accountable=user,
+            is_complete=False
+        ).order_by('-submitted_at')
+        
+        return Response(self.get_serializer(reviews, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def my_pending_reviews(self, request):
+        """Get all pending reviews assigned to current user across all levels"""
+        user = request.user
+        
+        reviews = self.get_queryset().filter(
+            reviewer=user,
+            is_complete=False
+        ).order_by('review_level', '-submitted_at')
+        
+        return Response(self.get_serializer(reviews, many=True).data)
+
+
     
 class ActivityReviewViewSet(ModelViewSet):
     """

@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Admin Review Required
+{% endblock %}
+
+{% block content %}
+<p>
+    An activity is awaiting final review at the Admin Desk:
+</p>
+
+<p><strong>{{ activity_name }}</strong></p>
+
+<p>
+    Please access the Admin Review Desk to process this request.
+</p>
+
+<div class="button-container">
+    <a href="{{ admin_desk_link }}" class="button">
+        Go to Admin Desk
+    </a>
+</div>
+{% endblock %}

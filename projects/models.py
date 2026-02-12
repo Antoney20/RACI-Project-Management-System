@@ -9,6 +9,8 @@ from mint.models import Sprint
 User = get_user_model()
 
 
+
+
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200)
@@ -326,6 +328,112 @@ class ActivityDocument(models.Model):
     def __str__(self):
         return f"{self.title or 'Untitled'} - {self.activity.name}"
 
+class ActivityReview(models.Model):
+
+    REVIEW_STATUS = [
+        ('not_started', 'Not Started'),
+        ('started', 'Started'),
+        ('submitted', 'Submitted'),
+        ('approved', 'Approved'),
+        ('completed', 'Completed'),
+        ('rejected', 'Rejected')
+    ]
+
+    REVIEW_LEVEL = [
+        ('accountable', 'Accountable'),
+        ('supervisor', 'Supervisor'),
+        ('admin', 'Admin'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    activity = models.ForeignKey(
+        Activity,
+        on_delete=models.CASCADE,
+        related_name="activity_review"
+    )
+
+    review_level = models.CharField(
+        max_length=20,
+        choices=REVIEW_LEVEL
+    )
+
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="activity_reviewer"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS,
+        default='not_started'
+    )
+
+    decision = models.CharField(
+        max_length=20,
+        choices=[
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+        ],
+        null=True,
+        blank=True
+    )
+    next_reviewer_id = models.IntegerField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    is_complete = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "raci_activity_review"
+        ordering = ['created_at']
+
+    def save(self, *args, **kwargs):
+
+        if self.status == 'submitted' and not self.submitted_at:
+            self.submitted_at = timezone.now()
+
+        if self.status in ['approved', 'rejected'] and not self.decided_at:
+            self.decided_at = timezone.now()
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.review_level} review for {self.activity}"
+
+
+
+class ActivityReviewComment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    review = models.ForeignKey(
+        ActivityReview,
+        on_delete=models.CASCADE,
+        related_name="comments"
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True
+    )
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "raci_activity_review_comment"
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.author}"
+
+
+
+
+
 
 class SupervisorReview(models.Model):
     REVIEW_STATUS_CHOICES = [
@@ -424,9 +532,7 @@ class SupervisorReview(models.Model):
 
         super().save(*args, **kwargs)
 
-        
-        
-        
+
 
 class Notification(models.Model):
     """Simplified notification model"""

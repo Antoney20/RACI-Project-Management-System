@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+
+{% block header_title %}
+Supervisor Review Requested
+{% endblock %}
+
+{% block content %}
+<p>
+    An activity has been moved  to you for your review:
+</p>
+
+<p><strong>{{ activity_name }}</strong></p>
+
+<p>
+    Please review the submission. 
+</p>
+
+<div class="button-container">
+    <a href="{{ activity_link }}" class="button">
+        Review Activity
+    </a>
+</div>
+{% endblock %}

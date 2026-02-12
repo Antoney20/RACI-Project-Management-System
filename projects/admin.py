@@ -1,13 +1,15 @@
 from django.contrib import admin
 
 # # Register your models here.
-from .models import  Project, Activity, SupervisorReview, Notification
+from .models import  Project, Activity, SupervisorReview, Notification,ActivityReview
 
 
 admin.site.register(Project)
 admin.site.register(Activity)
 admin.site.register(SupervisorReview)
 admin.site.register(Notification)
+admin.site.register(ActivityReview)
+
 # admin.site.register(ProjectMilestone)
 # admin.site.register(RACIAssignment)
 # admin.site.register(ProjectDocument)
