@@ -1,6 +1,5 @@
 .PHONY: help install install-dev run migrate mm makemigrations superuser shell db-shell test cov format lint clean
 
-
 # Colors
 YELLOW = \033[33m
 GREEN  = \033[32m

@@ -664,26 +664,26 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
 
         return accountable_qs.distinct()
 
-    @action(detail=True, methods=["post"])
-    def start(self, request, pk=None):
-        """Optional: Start reviewing (changes status from 'submitted' to 'started')"""
-        review = self.get_object()
-        user = request.user
+    # @action(detail=True, methods=["post"])
+    # def start(self, request, pk=None):
+    #     """Optional: Start reviewing (changes status from 'submitted' to 'started')"""
+    #     review = self.get_object()
+    #     user = request.user
 
-        if review.status not in ["submitted", "not_started"]:
-            raise ValidationError("Review already started or completed")
+    #     if review.status not in ["submitted", "not_started"]:
+    #         raise ValidationError("Review already started or completed")
 
-        if not is_admin(user) and review.reviewer != user:
-            raise PermissionDenied("You are not assigned to this review")
+    #     if not is_admin(user) and review.reviewer != user:
+    #         raise PermissionDenied("You are not assigned to this review")
 
-        review.status = "started"
-        review.started_at = timezone.now()
-        review.save()
+    #     review.status = "started"
+    #     review.started_at = timezone.now()
+    #     review.save()
 
-        return Response({
-            "detail": "Review started",
-            "review": self.get_serializer(review).data
-        })
+    #     return Response({
+    #         "detail": "Review started",
+    #         "review": self.get_serializer(review).data
+    #     })
 
 
 
@@ -832,6 +832,107 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
 
 
 
+    @action(detail=True, methods=["patch"])
+    def update_activity_status(self, request, pk=None):
+        review = self.get_object()
+        user = request.user
+
+        if not is_admin(user) and review.reviewer != user:
+            raise PermissionDenied("You are not assigned to this review")
+
+        if review.status == "completed":
+            raise ValidationError("Review already completed")
+
+        status = request.data.get("activity_status")
+        if not status:
+            raise ValidationError("activity_status is required")
+
+        valid = [choice[0] for choice in ActivityReview.REVIEW_STATUS]
+        if status not in valid:
+            raise ValidationError(
+                f"Invalid status. Must be one of: {', '.join(s[0] for s in ActivityReview.REVIEW_STATUS)}"
+            )
+
+        if status == "completed":
+            reviewer_id = request.data.get("reviewer_id")
+
+            if review.review_level == "accountable":
+                if not reviewer_id:
+                    raise ValidationError("Please select a supervisor to review next")
+
+                try:
+                    supervisor = User.objects.get(id=reviewer_id)
+                except User.DoesNotExist:
+                    raise ValidationError("Selected supervisor not found")
+
+                review.status = "completed"
+                review.next_reviewer_id = reviewer_id
+                review.completed_at = timezone.now()
+                review.save()
+
+                comment_text = request.data.get("comments")
+                if comment_text:
+                    ActivityReviewComment.objects.create(
+                        review=review,
+                        author=user,
+                        comment=comment_text
+                    )
+
+                create_supervisor_review(review.activity, supervisor)
+
+                return Response({
+                    "detail": "Accountable review completed. Supervisor review created.",
+                    "review": self.get_serializer(review).data
+                })
+
+            # Supervisor / admin path
+            if not review.decision:
+                raise ValidationError(
+                    "Please approve or reject the review before marking it complete"
+                )
+
+            if review.review_level == "supervisor" and review.decision == "approved":
+                if not reviewer_id:
+                    raise ValidationError("Please select an admin to review next")
+
+                try:
+                    selected_admin = User.objects.get(id=reviewer_id)
+                    if selected_admin.role not in ["admin", "office_admin"]:
+                        raise ValidationError("Selected user must be an admin")
+                    review.next_reviewer_id = reviewer_id
+                except User.DoesNotExist:
+                    raise ValidationError("Selected admin not found")
+
+            comment_text = request.data.get("comments")
+            if comment_text:
+                ActivityReviewComment.objects.create(
+                    review=review,
+                    author=user,
+                    comment=comment_text
+                )
+
+            review.status = "completed"
+            review.is_complete = True
+            review.completed_at = timezone.now()
+            review.save()
+
+            if review.decision == "approved":
+                self._progress_to_next_level(review)
+
+            return Response({
+                "detail": "Review completed successfully",
+                "review": self.get_serializer(review).data
+            })
+
+        # Any other status — simple update
+        review.status = status
+        review.save()
+
+        return Response({
+            "detail": "Activity status updated successfully",
+            "activity_status": review.status,
+        })
+
     def _progress_to_next_level(self, review):
         activity = review.activity
 
@@ -864,8 +965,6 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
 
         reviews = self.get_queryset().filter(
             review_level="admin",
-            # status__in=["submitted", "started"], 
-            # is_complete=False
         )
         return Response(self.get_serializer(reviews, many=True).data)
 
@@ -879,8 +978,7 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
 
         reviews = self.get_queryset().filter(
             review_level="supervisor",
-            reviewer=user,
-            is_complete=False
+            reviewer=user
         ).order_by('-submitted_at')
         
         return Response(self.get_serializer(reviews, many=True).data)
@@ -892,8 +990,7 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
         
         reviews = self.get_queryset().filter(
             review_level="accountable",
-            activity__accountable=user,
-            is_complete=False
+            activity__accountable=user
         ).order_by('-submitted_at')
         
         return Response(self.get_serializer(reviews, many=True).data)
@@ -904,8 +1001,7 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
         user = request.user
         
         reviews = self.get_queryset().filter(
-            reviewer=user,
-            is_complete=False
+            reviewer=user
         ).order_by('review_level', '-submitted_at')
         
         return Response(self.get_serializer(reviews, many=True).data)
