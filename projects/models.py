@@ -163,9 +163,7 @@ class Activity(models.Model):
 
     def __str__(self):
         return f"{self.project.name} - {self.name} (order {self.order})"
-    
-    
-    
+
 
 class UserActivityPriority(models.Model):
     """User's personal priority ordering for activities"""
