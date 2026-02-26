@@ -17,7 +17,6 @@ from django.contrib.auth import get_user_model
 
 
 from notifications.service import NotificationService
-from projects.services.alert import send_admin_review_alert_email, send_supervisor_review_alert_email
 from projects.utils.review_service import ActivityReportService
 from projects.utils.reviews import create_admin_review, create_or_reset_accountable_review, create_supervisor_review
 from projects.utils.roles import is_admin, is_supervisor
@@ -139,7 +138,7 @@ class ActivityViewSet(viewsets.ModelViewSet):
     - Users with any RACI role (R/A/C/I) can view activities
     - Only Admin or Supervisor can edit activities
     - Only Admin can delete activities
-    - Staff can see all activities (if is_staff=True)
+    - Staff can see all activities
     """
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
@@ -174,6 +173,15 @@ class ActivityViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             return ActivityDetailSerializer
         return ActivityListSerializer
+    
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if not (user.is_admin() or user.is_office_admin() or user.is_supervisor()):
+            return Response(
+                {"success": False, "message": "Unauthorized."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         """Only Admin or Supervisor can update activities"""
@@ -233,22 +241,19 @@ class ActivityViewSet(viewsets.ModelViewSet):
     def mark_complete(self, request, pk=None):
         """
         Mark activity as completed and trigger supervisor review.
-        Only Responsible, Accountable, Admin, or Supervisor can mark complete.
         """
         activity = self.get_object()
         user = request.user
         
-        if not (activity.responsible == user or activity.accountable == user or 
-                user.is_admin() or user.is_supervisor()):
+        if not (activity.responsible == user or user.is_admin()):
             return Response(
                 {
                     "success": False,
-                    "message": "Only Responsible or Accountable users can mark activity as complete."
+                    "message": "Only the Responsible Person can mark this activity as complete."
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
-        
-        # Mark activity as completed
+            
         activity.status = 'completed'
         activity.save()
         
@@ -315,7 +320,6 @@ class ActivityViewSet(viewsets.ModelViewSet):
                     order__lte=new_order
                 ).update(order=F('order') - 1)
             
-            # Update current activity order
             activity.order = new_order
             activity.save(update_fields=['order'])
         
@@ -376,6 +380,8 @@ class ActivityViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        
 
     @action(detail=True, methods=['patch'], url_path='update-status')
     def update_status(self, request, pk=None):
@@ -498,13 +504,22 @@ class MilestoneViewSet(viewsets.ModelViewSet):
             Q(assigned_to=user)
         ).distinct().select_related('activity', 'assigned_to')
 
+
     @action(detail=True, methods=['post'], url_path='mark-complete')
     def mark_complete(self, request, pk=None):
         """Mark milestone as completed"""
         milestone = self.get_object()
+        user = request.user
+
+        if not (user.is_staff or milestone.assigned_to == user ):
+            return Response(
+                {'success': False, 'message': 'You do not have permission to complete this milestone.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         milestone.status = 'completed'
         milestone.save()
-        
+
         return Response({
             'success': True,
             'message': 'Milestone marked as complete',
@@ -552,9 +567,8 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
                 'activity', 'uploaded_by'
             )
         
-        # Users see documents for activities they have access to
         return ActivityDocument.objects.filter(
-            Q(created_by=user) |
+            Q(uploaded_by=user) |
             Q(activity__responsible=user) | 
             Q(activity__accountable=user) | 
             Q(activity__consulted=user) | 
@@ -583,7 +597,7 @@ class ActivityDocumentViewSet(viewsets.ModelViewSet):
 
 class NewActivityReviewViewSet(viewsets.ModelViewSet):
     """
-    Activity Review Workflow
+    Activity Review
 
     Levels:
         1. Accountable Review
@@ -596,33 +610,6 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
         - Supervisor approves + marks complete → Admin review created (status='submitted')
         - Admin approves + marks complete → Activity marked approved
 
-    Status Flow:
-        submitted → approved/rejected → mark_complete (triggers next level)
-
-    Access Rules:
-
-    - Admin / Office Admin:
-        - See ALL reviews
-        - Can perform ANY action
-
-    - Accountable:
-        - Can see accountable-level reviews
-        - Only for activities where they are the accountable user
-
-    - Supervisor:
-        - Can see:
-            • Supervisor-level reviews
-            • Reviews where they are reviewer
-            • Reviews where they are consulted or informed
-
-
-    General Rules:
-        - Any assigned reviewer can:
-            • Start review (optional)
-            • Approve review
-            • Reject review
-            • Mark review complete (required to progress)
-        - No admin-only rejection
     """
 
     serializer_class = ActivityReviewSerializer
@@ -664,28 +651,6 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
 
         return accountable_qs.distinct()
 
-    # @action(detail=True, methods=["post"])
-    # def start(self, request, pk=None):
-    #     """Optional: Start reviewing (changes status from 'submitted' to 'started')"""
-    #     review = self.get_object()
-    #     user = request.user
-
-    #     if review.status not in ["submitted", "not_started"]:
-    #         raise ValidationError("Review already started or completed")
-
-    #     if not is_admin(user) and review.reviewer != user:
-    #         raise PermissionDenied("You are not assigned to this review")
-
-    #     review.status = "started"
-    #     review.started_at = timezone.now()
-    #     review.save()
-
-    #     return Response({
-    #         "detail": "Review started",
-    #         "review": self.get_serializer(review).data
-    #     })
-
-
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
@@ -698,13 +663,11 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
         if review.status in ["approved", "rejected"]:
             raise ValidationError("Review already completed")
 
-        # 1️⃣ Save approval state
         review.status = "approved"
         review.decision = "approved"
         review.decided_at = timezone.now()
         review.save()
 
-        # 2️⃣ Create comment (NOT assign)
         comment_text = request.data.get("comments")
         if comment_text:
             ActivityReviewComment.objects.create(
@@ -713,7 +676,6 @@ class NewActivityReviewViewSet(viewsets.ModelViewSet):
                 comment=comment_text
             )
 
-        # 3️⃣ Response
         if review.review_level == "accountable":
             return Response({
                 "detail": "Accountable review approved",

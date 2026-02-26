@@ -185,7 +185,7 @@ class ActivityListSerializer(serializers.ModelSerializer):
         model = Activity
         fields = [
             'id', 'project', 'project_name', 'name', 'responsible', 'accountable',
-            'consulted', 'informed', 'status', 'priority', 'is_complete',
+            'consulted', 'informed', 'status', 'priority', 'is_complete', 'completed_at',
             'deadline', 'milestone_count', 'created_at', 'type'  , 'order'       
         ]
         read_only_fields = ['id', 'is_complete', 'created_at']
@@ -207,7 +207,7 @@ class ActivityDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'project', 'project_name', 'name', 'description', 'type',  'order',    
             'responsible', 'accountable', 'consulted', 'informed',
-            'status', 'priority', 'is_complete', 'deadline',
+            'status', 'priority', 'is_complete', 'deadline', 'completed_at',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'is_complete', 'created_at', 'updated_at']
