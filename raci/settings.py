@@ -267,15 +267,15 @@ WSGI_APPLICATION = "raci.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "raci_db.sqlite3",
-        "OPTIONS": {          
-            "timeout": 60,    
-        },
-    }
-}
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "raci_db.sqlite3",
+#         "OPTIONS": {          
+#             "timeout": 60,    
+#         },
+#     }
+# }
 
 # DATABASES = {
 #     'default': {
@@ -289,16 +289,16 @@ DATABASES = {
 # }
 
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME'),
-#         'USER': os.getenv('DB_USER'),
-#         'PASSWORD': os.getenv('DB_PASSWORD'),
-#         'HOST': os.getenv('DB_HOST'),
-#         'PORT': os.getenv('DB_PORT'),
-#     }
-# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_PORT'),
+    }
+}
 
 
 
@@ -345,10 +345,19 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # MEDIA_URL = '/media/'
 
 
-DEFAULT_FILE_STORAGE = "core.services.storage_backend.CemaStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": "core.services.storage_backend.CemaStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
-MEDIA_STORAGE_URL = "https://media.cema.africa"
-MEDIA_APP_NAME = "RACI"
+MEDIA_STORAGE_URL = "http://127.0.0.1:8001/api"
+
+# MEDIA_STORAGE_URL = "https://raci.cema.africa"
+MEDIA_APP_NAME = "Test"
 MEDIA_APP_TOKEN = os.environ.get("RACI_MEDIA_TOKEN")
 
 # Default primary key field type

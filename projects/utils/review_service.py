@@ -1,195 +1,383 @@
-import uuid
-from typing import Dict, List, Any, Optional
+from typing import Any
+import datetime
 from django.contrib.auth import get_user_model
-from django.db.models import Q, QuerySet
-from django.http import HttpRequest
-from django.utils import timezone
-from rest_framework.response import Response
+from django.db.models import Q, Prefetch, QuerySet
 from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
+from rest_framework.permissions import IsAuthenticated
 
-from mint.models import Sprint  
+from mint.models import Sprint
 from projects.models import (
-    Project, Activity,  Milestone,
-    ActivityComment, ActivityDocument,
-    SupervisorReview
+    Project, Activity, Milestone,
+    ActivityComment, ActivityDocument, ActivityReview,
 )
-from projects.serializers import UserMinimalSerializer  
+from projects.serializers import UserMinimalSerializer
 
 User = get_user_model()
 
 
-class ActivityReportService:
-    @staticmethod
-    def get_all_users() -> List[Dict[str, Any]]:
-        """Fetch all users in minimal format."""
-        users = User.objects.all()
-        return UserMinimalSerializer(users, many=True).data
+def _user(u) -> dict | None:
+    return UserMinimalSerializer(u).data if u else None
 
-    @staticmethod
-    def get_projects_for_user(user: User) -> QuerySet[Project]:
-        """Get projects based on user role and involvement."""
-        if user.is_superuser or user.role == 'admin':  # Assuming role field or is_superuser
-            return Project.objects.all()
-        elif user.role == 'supervisor':
-            # Supervisors see projects where they are involved (e.g., accountable, consulted, etc.)
-            # or activities where they are reviewer
-            activity_qs = Activity.objects.filter(
-                Q(accountable=user) |
-                Q(consulted=user) |
-                Q(informed=user) |
-                Q(supervisor_reviews__reviewer=user)
-            ).distinct()
-            return Project.objects.filter(activities__in=activity_qs).distinct()
-        else:
-            # Regular users see nothing
-            return Project.objects.none()
+def _users(qs) -> list:
+    return UserMinimalSerializer(qs, many=True).data
 
-    @staticmethod
-    def get_activities_for_project(project: Project) -> List[Dict[str, Any]]:
-        """Get detailed activities for a project with roles, dates, status, etc."""
-        activities = Activity.objects.filter(project=project).order_by('order')
-        activity_data = []
-        for activity in activities:
-            data = {
-                'id': str(activity.id),
-                'name': activity.name,
-                'description': activity.description,
-                'type': activity.get_type_display(),
-                'status': activity.get_status_display(),
-                'priority': activity.get_priority_display(),
-                'deadline': activity.deadline,
-                'is_complete': activity.is_complete,
-                'completed_at': activity.completed_at,
-                'responsible': UserMinimalSerializer(activity.responsible).data if activity.responsible else None,
-                'accountable': UserMinimalSerializer(activity.accountable).data if activity.accountable else None,
-                'consulted': UserMinimalSerializer(activity.consulted.all(), many=True).data,
-                'informed': UserMinimalSerializer(activity.informed.all(), many=True).data,
-                'comments': ActivityReportService.get_comments_for_activity(activity),
-                'documents': ActivityReportService.get_documents_for_activity(activity),
-                'milestones': ActivityReportService.get_milestones_for_activity(activity),
-                'supervisor_reviews': ActivityReportService.get_supervisor_reviews_for_activity(activity),
-                'created_at': activity.created_at,
-                'updated_at': activity.updated_at,
+def _td(delta) -> str | None:
+    return str(delta) if delta else None
+
+
+def _supervisor_activity_ids(user) -> QuerySet:
+    """
+    Return a queryset of Activity PKs the supervisor is allowed to see
+    """
+    return Activity.objects.filter(
+        Q(responsible=user) |
+        Q(accountable=user) |
+        Q(consulted=user) |
+        Q(informed=user) |
+        Q(activity_review__reviewer=user)
+    ).values_list("id", flat=True).distinct()
+
+
+def _activity_qs(activity_filter: Q | None = None):
+    """
+    Build a prefetched Activity queryset.
+    Pass a Q filter to scope which activities are fetched.
+    """
+    qs = Activity.objects
+    if activity_filter is not None:
+        qs = qs.filter(activity_filter)
+    return (
+        qs
+        .select_related("responsible", "accountable")
+        .prefetch_related(
+            "consulted",
+            "informed",
+            Prefetch(
+                "comments",
+                queryset=ActivityComment.objects.select_related("user").order_by("created_at"),
+            ),
+            Prefetch(
+                "documents",
+                queryset=ActivityDocument.objects.select_related("uploaded_by"),
+            ),
+            Prefetch(
+                "milestones",
+                queryset=Milestone.objects.select_related("assigned_to"),
+            ),
+            Prefetch(
+                "activity_review",
+                queryset=ActivityReview.objects.select_related("reviewer").order_by("created_at"),
+            ),
+        )
+        .order_by("order")
+    )
+
+
+
+def _shape_review(r: "ActivityReview", activity: "Activity") -> dict:
+    submitted_to_decided = _td(
+        (r.decided_at - r.submitted_at) if r.decided_at and r.submitted_at else None
+    )
+    created_to_submitted = _td(
+        (r.submitted_at - activity.created_at) if r.submitted_at and activity.created_at else None
+    )
+    total = _td(
+        (r.decided_at - activity.created_at) if r.decided_at and activity.created_at else None
+    )
+    return {
+        "id": str(r.id),
+        "review_level": r.get_review_level_display(),
+        "status": r.get_status_display(),
+        "decision": r.decision,
+        "reviewer": _user(r.reviewer),
+        "is_complete": r.is_complete,
+        "submitted_at": r.submitted_at,
+        "decided_at": r.decided_at,
+        "turnaround": {
+            "created_to_submitted": created_to_submitted,
+            "submitted_to_decided": submitted_to_decided,
+            "total": total,
+        },
+    }
+
+
+def _shape_milestone(m: "Milestone") -> dict:
+    return {
+        "id": str(m.id),
+        "title": m.title,
+        "description": m.description,
+        "assigned_to": _user(m.assigned_to),
+        "status": m.get_status_display(),
+        "priority": m.get_priority_display(),
+        "due_date": m.due_date,
+        "is_completed": m.is_completed,
+        "completed_at": m.completed_at,
+        "comments": [],  
+    }
+
+
+def _shape_activity(a: "Activity") -> dict:
+    reviews = [_shape_review(r, a) for r in a.activity_review.all()]
+
+    review_summary: dict[str, dict] = {}
+    for r in a.activity_review.all():
+        lvl = r.get_review_level_display()
+        review_summary[lvl] = {
+            "status": r.get_status_display(),
+            "decision": r.decision,
+            "reviewer": _user(r.reviewer),
+            "decided_at": r.decided_at,
+        }
+
+    return {
+        "id": str(a.id),
+        "name": a.name,
+        "description": a.description,
+        "type": a.get_type_display(),
+        "status": a.get_status_display(),
+        "priority": a.get_priority_display(),
+        "deadline": a.deadline,
+        "is_complete": a.is_complete,
+        "completed_at": a.completed_at,
+        "order": a.order,
+        "created_at": a.created_at,
+        "updated_at": a.updated_at,
+        "responsible": _user(a.responsible),
+        "accountable": _user(a.accountable),
+        "consulted": _users(a.consulted.all()),
+        "informed": _users(a.informed.all()),
+        "milestones": [_shape_milestone(m) for m in a.milestones.all()],
+        "comments": [
+            {
+                "id": str(c.id),
+                "user": _user(c.user),
+                "content": c.content,
+                "created_at": c.created_at,
             }
-            activity_data.append(data)
-        return activity_data
-
-    @staticmethod
-    def get_comments_for_activity(activity: Activity) -> List[Dict[str, Any]]:
-        """Get comments for an activity."""
-        comments = ActivityComment.objects.filter(activity=activity)
-        return [{
-            'id': str(c.id),
-            'user': UserMinimalSerializer(c.user).data,
-            'content': c.content,
-            'created_at': c.created_at,
-        } for c in comments]
-
-    @staticmethod
-    def get_documents_for_activity(activity: Activity) -> List[Dict[str, Any]]:
-        """Get documents/links for an activity."""
-        docs = ActivityDocument.objects.filter(activity=activity)
-        return [{
-            'id': str(d.id),
-            'title': d.title,
-            'description': d.description,
-            'file_url': d.file.url if d.file else None,
-            'external_url': d.external_url,
-            'uploaded_by': UserMinimalSerializer(d.uploaded_by).data,
-            'created_at': d.created_at,
-        } for d in docs]
-
-    @staticmethod
-    def get_milestones_for_activity(activity: Activity) -> List[Dict[str, Any]]:
-        """Get milestones with comments and details."""
-        milestones = Milestone.objects.filter(activity=activity)
-        milestone_data = []
-        for m in milestones:
-            data = {
-                'id': str(m.id),
-                'title': m.title,
-                'description': m.description,
-                'assigned_to': UserMinimalSerializer(m.assigned_to).data if m.assigned_to else None,
-                'status': m.get_status_display(),
-                'priority': m.get_priority_display(),
-                'due_date': m.due_date,
-                'is_completed': m.is_completed,
-                'completed_at': m.completed_at,
-                'comments': [{
-                    'id': str(c.id),
-                    'user': UserMinimalSerializer(c.user).data,
-                    'content': c.content,
-                    'created_at': c.created_at,
-                } for c in m.comments.all()],
+            for c in a.comments.all()
+        ],
+        "documents": [
+            {
+                "id": str(d.id),
+                "title": d.title,
+                "description": d.description,
+                "file_url": d.file.url if d.file else None,
+                "external_url": d.external_url,
+                "uploaded_by": _user(d.uploaded_by),
+                "created_at": d.created_at,
             }
-            milestone_data.append(data)
-        return milestone_data
+            for d in a.documents.all()
+        ],
+        "reviews": reviews,
+        "review_summary": review_summary,
+    }
 
-    @staticmethod
-    def get_supervisor_reviews_for_activity(activity: Activity) -> List[Dict[str, Any]]:
-        """Get supervisor reviews with turnaround times and details."""
-        reviews = SupervisorReview.objects.filter(activity=activity)
-        review_data = []
-        for r in reviews:
-            created_to_start = (r.started_at - activity.created_at) if r.started_at and activity.created_at else None
-            start_to_approved = (r.supervisor_approved_at - r.started_at) if r.supervisor_approved_at and r.started_at else None
-            approved_to_completed = (r.completed_at - r.supervisor_approved_at) if r.completed_at and r.supervisor_approved_at else None
-            total_turnaround = (r.completed_at - activity.created_at) if r.completed_at and activity.created_at else None
 
-            completed_on_time = False
-            if r.completed_at and activity.deadline:
-                completed_on_time = r.completed_at <= activity.deadline
+def _shape_project(p: "Project", activities: list[dict]) -> dict:
+    total       = len(activities)
+    completed   = sum(1 for a in activities if a["is_complete"])
+    in_progress = sum(1 for a in activities if a["status"] == "In Progress")
+    not_started = sum(1 for a in activities if a["status"] == "Not Started")
 
-            data = {
-                'id': str(r.id),
-                'review_level': r.get_review_level_display(),
-                'status': r.get_status_display(),
-                'reviewer': UserMinimalSerializer(r.reviewer).data if r.reviewer else None,
-                'is_supervisor_approved': r.is_supervisor_approved,
-                'supervisor_approved_at': r.supervisor_approved_at,
-                'move_to_admin': r.move_to_admin,
-                'is_admin_approved': r.is_admin_approved,
-                'admin_approved_at': r.admin_approved_at,
-                'notes': r.notes,
-                'started_at': r.started_at,
-                'completed_at': r.completed_at,
-                'is_complete': r.is_complete,
-                'completed_on_time': completed_on_time,
-                'turnaround_times': {
-                    'created_to_start': str(created_to_start) if created_to_start else None,
-                    'start_to_approved': str(start_to_approved) if start_to_approved else None,
-                    'approved_to_completed': str(approved_to_completed) if approved_to_completed else None,
-                    'total': str(total_turnaround) if total_turnaround else None,
+    return {
+        "id": str(p.id),
+        "name": p.name,
+        "description": p.description,
+        "deliverables": p.deliverables,
+        "status": p.status,
+        "priority": p.priority,
+        "start_date": p.start_date,
+        "end_date": p.end_date,
+        "duration_days": p.duration_days,
+        "project_link": p.project_link,
+        "created_at": p.created_at,
+        "sprint": {"id": p.sprint_id, "name": p.sprint.name} if p.sprint else None,
+        "activity_stats": {
+            "total": total,
+            "completed": completed,
+            "in_progress": in_progress,
+            "not_started": not_started,
+        },
+        "activities": activities,
+    }
+
+
+def _shape_sprint(s: "Sprint", projects: list[dict]) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "description": s.description,
+        "start_date": s.start_date,
+        "end_date": s.end_date,
+        "is_active": s.is_active,
+        "department": s.department,
+        "duration_template": s.duration_template,
+        "sprint_goals": s.sprint_goals,
+        "expected_deliverables": s.expected_deliverables,
+        "created_by": _user(s.created_by),
+        "project_count": len(projects),
+        "projects": projects,
+    }
+
+
+
+def _build_user_workload(allowed_activity_ids: QuerySet) -> list[dict]:
+    activity_qs = (
+        Activity.objects
+        .filter(id__in=allowed_activity_ids)
+        .select_related("responsible", "accountable", "project")
+    )
+
+    workload: dict[str, dict] = {}
+
+    def _ensure(user_obj) -> dict:
+        uid = str(user_obj.id)
+        if uid not in workload:
+            workload[uid] = {
+                "user": _user(user_obj),
+                "responsible_for": [],
+                "accountable_for": [],
+                "stats": {
+                    "total_responsible": 0, "completed_responsible": 0,
+                    "total_accountable": 0, "completed_accountable": 0,
                 },
             }
-            review_data.append(data)
-        return review_data
+        return workload[uid]
+
+    for a in activity_qs:
+        entry = {
+            "activity_id": str(a.id),
+            "activity_name": a.name,
+            "project": a.project.name,
+            "status": a.get_status_display(),
+            "priority": a.get_priority_display(),
+            "deadline": a.deadline,
+            "is_complete": a.is_complete,
+        }
+        if a.responsible:
+            bucket = _ensure(a.responsible)
+            bucket["responsible_for"].append(entry)
+            bucket["stats"]["total_responsible"] += 1
+            if a.is_complete:
+                bucket["stats"]["completed_responsible"] += 1
+        if a.accountable:
+            bucket = _ensure(a.accountable)
+            bucket["accountable_for"].append(entry)
+            bucket["stats"]["total_accountable"] += 1
+            if a.is_complete:
+                bucket["stats"]["completed_accountable"] += 1
+
+    return list(workload.values())
+
+
+
+class ActivityReportService:
 
     @staticmethod
-    def compile_report(user: User) -> Dict[str, Any]:
-        """Compile full report data."""
+    def compile_report(user) -> dict:
+        is_admin = user.is_superuser or user.role == "admin"
+
+        if is_admin:
+            allowed_activity_ids = (
+                Activity.objects.values_list("id", flat=True)
+            )
+            project_qs = (
+                Project.objects
+                .select_related("sprint", "sprint__created_by")
+                .order_by("-created_at")
+            )
+            def activity_q_for_project(project_id):
+                return Q(project_id=project_id)
+        else:
+            allowed_activity_ids = _supervisor_activity_ids(user)
+            project_qs = (
+                Project.objects
+                .filter(activities__id__in=allowed_activity_ids)
+                .select_related("sprint", "sprint__created_by")
+                .distinct()
+                .order_by("-created_at")
+            )
+
+            def activity_q_for_project(project_id):
+                return Q(project_id=project_id, id__in=allowed_activity_ids)
+
+        projects_by_id: dict[str, dict] = {}
+        for p in project_qs:
+            scoped_activities = list(
+                _activity_qs(activity_q_for_project(p.id))
+            )
+            shaped_activities = [_shape_activity(a) for a in scoped_activities]
+            projects_by_id[str(p.id)] = _shape_project(p, shaped_activities)
+
+        sprint_map: dict[int, dict] = {}
+        no_sprint_projects: list[dict] = []
+
+        for p in project_qs:
+            shaped = projects_by_id[str(p.id)]
+            if p.sprint_id:
+                if p.sprint_id not in sprint_map:
+                    sprint_map[p.sprint_id] = {"sprint_obj": p.sprint, "projects": []}
+                sprint_map[p.sprint_id]["projects"].append(shaped)
+            else:
+                no_sprint_projects.append(shaped)
+
+        sprints = [
+            _shape_sprint(v["sprint_obj"], v["projects"])
+            for v in sprint_map.values()
+        ]
+
+        users = _users(User.objects.all()) if is_admin else []
+
+        workload = _build_user_workload(allowed_activity_ids)
+
+        all_activities: list[dict] = [
+            a for p in projects_by_id.values() for a in p["activities"]
+        ]
+        today = datetime.date.today()
+        stats = {
+            "total_sprints": len(sprints),
+            "total_projects": len(projects_by_id),
+            "total_activities": len(all_activities),
+            "completed_activities": sum(1 for a in all_activities if a["is_complete"]),
+            "in_progress_activities": sum(1 for a in all_activities if a["status"] == "In Progress"),
+            "overdue_activities": sum(
+                1 for a in all_activities
+                if a["deadline"] and not a["is_complete"]
+                and a["deadline"].date() < today
+            ),
+        }
+
+        return {
+            "stats": stats,
+            "users": users,
+            "user_workload": workload,
+            "sprints": sprints,
+            "no_sprint_projects": no_sprint_projects,
+        }
+
+
+
+class ActivityReportsViewSet(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        user = request.user
+
+        if not (user.is_superuser or getattr(user, "role", None) in ("admin", "supervisor")):
+            return Response(
+                {"error": "You do not have permission to view reports."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
-            users = ActivityReportService.get_all_users() if user.role in ['admin', 'supervisor'] else []
-            projects = ActivityReportService.get_projects_for_user(user)
-            project_data = []
-            for project in projects:
-                data = {
-                    'id': str(project.id),
-                    'name': project.name,
-                    'description': project.description,
-                    'deliverables': project.deliverables,
-                    'status': project.status,
-                    'priority': project.priority,
-                    'start_date': project.start_date,
-                    'end_date': project.end_date,
-                    'duration_days': project.duration_days,
-                    'project_link': project.project_link,
-                    'activities': ActivityReportService.get_activities_for_project(project),
-                }
-                project_data.append(data)
-            return {
-                'users': users,
-                'projects': project_data,
-            }
+            return Response(
+                ActivityReportService.compile_report(user),
+                status=status.HTTP_200_OK,
+            )
         except Exception as e:
-            raise ValueError(f"Failed to compile report: {str(e)}")
+            return Response(
+                {"error": f"Failed to compile report: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
