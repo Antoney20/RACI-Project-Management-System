@@ -105,7 +105,7 @@ def _activity_counts(qs) -> dict:
     due_soon    = qs.filter(
         deadline__gte=now,
         deadline__lt=now + timedelta(days=7),
-        status__in=["not_started", "in_progress"]
+        status__in=["not_started", "in_progress"],
     ).count()
     return {
         "total": total,
@@ -119,11 +119,122 @@ def _activity_counts(qs) -> dict:
 
 
 
+def _personal_snapshot(user) -> dict:
+    """
+    Returns the logged-in user's own activities, leave balance, milestones
+    and pending reviews regardless of their system role.
+    This is embedded in every dashboard response under the key "personal".
+    """
+    now = timezone.now()
+
+    my_acts = (
+        Activity.objects
+        .filter(responsible=user)
+        .select_related("project")
+    )
+
+    act_counts = _activity_counts(my_acts)
+
+    in_progress = list(my_acts.filter(status="in_progress").order_by("deadline")[:8])
+    due_soon    = list(
+        my_acts.filter(
+            deadline__gte=now,
+            deadline__lt=now + timedelta(days=7),
+            status__in=["not_started", "in_progress"],
+        ).order_by("deadline")[:8]
+    )
+    overdue = list(
+        my_acts.filter(
+            deadline__lt=now,
+            status__in=["not_started", "in_progress"],
+        ).order_by("deadline")[:5]
+    )
+
+    milestones = (
+        Milestone.objects
+        .filter(
+            assigned_to=user,
+            status__in=["not_started", "in_progress"],
+            due_date__gte=now,
+        )
+        .select_related("activity", "activity__project")
+        .order_by("due_date")[:8]
+    )
+
+    my_reviews = (
+        ActivityReview.objects
+        .filter(reviewer=user, status__in=["not_started", "started", "submitted"])
+        .select_related("activity", "activity__project")
+        .order_by("created_at")[:5]
+    )
+
+    recent_leaves = (
+        LeaveRequest.objects
+        .filter(user=user)
+        .order_by("-created_at")[:5]
+    )
+
+    leave_bal = _leave_balance(user)
+
+    return {
+        "summary": {
+            "activities_total": act_counts["total"],
+            "activities_completed": act_counts["completed"],
+            "activities_in_progress": act_counts["in_progress"],
+            "activities_overdue": act_counts["overdue"],
+            "completion_rate": act_counts["completion_rate"],
+            "milestones_upcoming": milestones.count(),
+            "pending_reviews": my_reviews.count(),
+        },
+        "leave": leave_bal,
+        "recent_leave_requests": [_leave_entry(lr) for lr in recent_leaves],
+        "activities": {
+            **act_counts,
+            "in_progress": [
+                _activity_entry(a) for a in in_progress
+            ],
+            "due_soon": [
+                _activity_entry(a, {
+                    "days_remaining": (a.deadline - now).days if a.deadline else None,
+                })
+                for a in due_soon
+            ],
+            "overdue": [
+                _activity_entry(a, {
+                    "days_overdue": (now - a.deadline).days if a.deadline else None,
+                })
+                for a in overdue
+            ],
+        },
+        "milestones": {
+            "upcoming": [
+                {
+                    "id": str(m.id),
+                    "title": m.title,
+                    "activity": m.activity.name,
+                    "activity_id": str(m.activity.id),
+                    "project": m.activity.project.name,
+                    "due_date": m.due_date,
+                    "priority": m.priority,
+                    "status": m.status,
+                }
+                for m in milestones
+            ],
+        },
+        "reviews": {
+            "pending_count": my_reviews.count(),
+            "items": [_review_entry(r) for r in my_reviews],
+        },
+    }
+
+
+# ─── admin ───────────────────────────────────────────────────────────────────
+
 def _admin_stats(user) -> dict:
     now  = timezone.now()
     week = now - timedelta(days=7)
 
-    # Leave
+    # Pending leaves (org-wide)
     pending_leaves = (
         LeaveRequest.objects
         .filter(status="pending")
@@ -132,7 +243,7 @@ def _admin_stats(user) -> dict:
     )
     pending_leave_count = LeaveRequest.objects.filter(status="pending").count()
 
-    # Activities
+    # Activities (org-wide)
     all_acts = Activity.objects.select_related("project")
     act_counts = _activity_counts(all_acts)
     completed_this_week = all_acts.filter(
@@ -182,9 +293,7 @@ def _admin_stats(user) -> dict:
             "contracts_expiring": expiring_count,
             "completed_this_week": completed_this_week,
         },
-        "activities": {
-            **act_counts,
-        },
+        "activities": act_counts,
         "leave_requests": {
             "pending_count": pending_leave_count,
             "items": [_leave_entry(lr) for lr in pending_leaves],
@@ -206,13 +315,16 @@ def _admin_stats(user) -> dict:
                 for c in expiring
             ],
         },
+        # ← personal staff-level view for the logged-in admin
+        "personal": _personal_snapshot(user),
     }
 
 
+# ─── supervisor ──────────────────────────────────────────────────────────────
 
 def _get_raci_role(user, act) -> str:
-    if act.responsible_id == user.id:   return "Responsible"
-    if act.accountable_id == user.id:   return "Accountable"
+    if act.responsible_id == user.id:  return "Responsible"
+    if act.accountable_id == user.id:  return "Accountable"
     return "Involved"
 
 
@@ -237,7 +349,7 @@ def _supervisor_stats(user) -> dict:
         user_id__in=team_ids, status="pending"
     ).count()
 
-    # Activities where supervisor is involved
+    # Activities where supervisor is involved (team-wide)
     my_acts = (
         Activity.objects
         .filter(
@@ -315,116 +427,16 @@ def _supervisor_stats(user) -> dict:
             "pending_count": pending_review_count,
             "items": [_review_entry(r) for r in pending_reviews],
         },
+        # ← personal staff-level view for the logged-in supervisor
+        "personal": _personal_snapshot(user),
     }
 
 
-
 def _staff_stats(user) -> dict:
-    now = timezone.now()
-
-    my_acts = (
-        Activity.objects
-        .filter(responsible=user)
-        .select_related("project")
-    )
-
-    act_counts = _activity_counts(my_acts)
-
-    in_progress = list(my_acts.filter(status="in_progress").order_by("deadline")[:8])
-    due_soon    = list(
-        my_acts.filter(
-            deadline__gte=now,
-            deadline__lt=now + timedelta(days=7),
-            status__in=["not_started", "in_progress"],
-        ).order_by("deadline")[:8]
-    )
-    overdue = list(
-        my_acts.filter(
-            deadline__lt=now,
-            status__in=["not_started", "in_progress"],
-        ).order_by("deadline")[:5]
-    )
-
-    # Upcoming milestones
-    milestones = (
-        Milestone.objects
-        .filter(
-            assigned_to=user,
-            status__in=["not_started", "in_progress"],
-            due_date__gte=now,
-        )
-        .select_related("activity", "activity__project")
-        .order_by("due_date")[:8]
-    )
-
-    # My pending reviews (if any)
-    my_reviews = (
-        ActivityReview.objects
-        .filter(reviewer=user, status__in=["not_started", "started", "submitted"])
-        .select_related("activity", "activity__project")
-        .order_by("created_at")[:5]
-    )
-
-    # Recent leave requests
-    recent_leaves = (
-        LeaveRequest.objects
-        .filter(user=user)
-        .order_by("-created_at")[:5]
-    )
-
-    leave_bal = _leave_balance(user)
-
+    snapshot = _personal_snapshot(user)
     return {
         "role": "staff",
-        "summary": {
-            "activities_total": act_counts["total"],
-            "activities_completed": act_counts["completed"],
-            "activities_in_progress": act_counts["in_progress"],
-            "activities_overdue": act_counts["overdue"],
-            "completion_rate": act_counts["completion_rate"],
-            "milestones_upcoming": milestones.count(),
-            "pending_reviews": my_reviews.count(),
-        },
-        "leave": leave_bal,
-        "recent_leave_requests": [_leave_entry(lr) for lr in recent_leaves],
-        "activities": {
-            **act_counts,
-            "in_progress": [
-                _activity_entry(a, {"deadline": a.deadline})
-                for a in in_progress
-            ],
-            "due_soon": [
-                _activity_entry(a, {
-                    "days_remaining": (a.deadline - now).days if a.deadline else None,
-                })
-                for a in due_soon
-            ],
-            "overdue": [
-                _activity_entry(a, {
-                    "days_overdue": (now - a.deadline).days if a.deadline else None,
-                })
-                for a in overdue
-            ],
-        },
-        "milestones": {
-            "upcoming": [
-                {
-                    "id": str(m.id),
-                    "title": m.title,
-                    "activity": m.activity.name,
-                    "activity_id": str(m.activity.id),
-                    "project": m.activity.project.name,
-                    "due_date": m.due_date,
-                    "priority": m.priority,
-                    "status": m.status,
-                }
-                for m in milestones
-            ],
-        },
-        "reviews": {
-            "pending_count": my_reviews.count(),
-            "items": [_review_entry(r) for r in my_reviews],
-        },
+        **snapshot,
     }
 
 
