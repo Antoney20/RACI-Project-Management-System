@@ -1008,13 +1008,6 @@ class DashboardStatsViewSet(viewsets.ViewSet):
     def list(self, request):
         """
         Get dashboard stats for current user.
-        
-        Returns role-appropriate data:
-        - Admin: Pending leaves, system stats, contracts expiring
-        - Supervisor: Team leaves, supervised activities, reviews
-        - Staff: Personal activities, milestones, leave balance
-        
-        Query params: None (uses request.user automatically)
         """
         user = request.user
         

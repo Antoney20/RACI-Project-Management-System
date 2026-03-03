@@ -22,6 +22,7 @@ from datetime import date, timedelta
 
 from accounts.models import CustomUser
 from employee.utils.timesheet import AttendanceService
+from datetime import datetime, timedelta
 
 
 
@@ -364,16 +365,39 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             )
         
         # Get request data
+        # leave_type = request.data.get('leave_type', 'ANNUAL').upper() 
+        # start_date = request.data.get('start_date')
+        # end_date = request.data.get('end_date')
         leave_type = request.data.get('leave_type', 'ANNUAL').upper() 
-        start_date = request.data.get('start_date')
-        end_date = request.data.get('end_date')
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date')
         
-        if not start_date or not end_date:
+        
+        if not start_date_str or not end_date_str:
             return Response(
                 {'error': 'Both start_date and end_date are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+                
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response(
+                {'error': 'start_date and end_date must be in YYYY-MM-DD format'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
+        # --- NOTICE CHECK ---
+        if leave_type == 'ANNUAL':
+            today = datetime.today().date()
+            min_start_date = today + timedelta(days=13)  # 14-day notice including today
+            if start_date < min_start_date:
+                return Response(
+                    {'error': 'Annual leave must be requested at least 14 days in advance'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
         days_requested = calculate_working_days(
             start_date,
             end_date,
@@ -488,6 +512,12 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 {'error': 'You are not authorized to approve this request'},
                 status=status.HTTP_403_FORBIDDEN
             )
+            
+        if leave_request.user == user and not user.is_admin():
+            return Response(
+                {'error': 'You cannot approve your own leave request'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         
         # Approve the request
@@ -520,8 +550,12 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
    
                  )
-        
- 
+            
+        if leave_request.user == user and not user.is_admin():
+            return Response(
+                {'error': 'You cannot reject your own leave request'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         # Get rejection reason
         rejection_reason = request.data.get('rejection_reason')
         if not rejection_reason:

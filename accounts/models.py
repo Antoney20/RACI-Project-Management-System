@@ -105,7 +105,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(max_length=20, blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
     profile_image = models.ImageField(
-        upload_to="users/profiles/", blank=True, null=True
+        upload_to="", blank=True, null=True
     )
 
     # user role
@@ -149,7 +149,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     )
 
  
-    # -------------------- invite models
     is_invited = models.BooleanField(default=False)
     invite_token = models.UUIDField(
         null=True,

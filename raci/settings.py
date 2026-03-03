@@ -263,6 +263,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "raci.wsgi.application"
 
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024 * 1024 
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+FILE_UPLOAD_CHUNK_SIZE = 1024 * 1024     
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -345,6 +349,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # MEDIA_URL = '/media/'
 
 
+
 STORAGES = {
     "default": {
         "BACKEND": "core.services.storage_backend.CemaStorage",
@@ -354,11 +359,32 @@ STORAGES = {
     },
 }
 
-MEDIA_STORAGE_URL = "http://127.0.0.1:8001/api"
+if DEBUG:
+    MEDIA_STORAGE_URL = "http://127.0.0.1:8001/api"
+else:
+    MEDIA_STORAGE_URL = "https://media.cema.africa/api"
 
-# MEDIA_STORAGE_URL = "https://raci.cema.africa"
-MEDIA_APP_NAME = "Test"
-MEDIA_APP_TOKEN = os.environ.get("RACI_MEDIA_TOKEN")
+# MEDIA_APP_NAME  = "Test"
+MEDIA_APP_NAME  = os.getenv("RACI_MEDIA_NAME", "Test")
+MEDIA_APP_TOKEN = os.getenv("RACI_MEDIA_TOKEN")
+
+
+
+
+# STORAGES = {
+#     "default": {
+#         "BACKEND": "core.services.storage_backend.CemaStorage",
+#     },
+#     "staticfiles": {
+#         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+#     },
+# }
+
+# MEDIA_STORAGE_URL = "http://127.0.0.1:8001/api"
+
+# # MEDIA_STORAGE_URL = "https://raci.cema.africa"
+# MEDIA_APP_NAME = "Test"
+# MEDIA_APP_TOKEN = os.environ.get("RACI_MEDIA_TOKEN")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
