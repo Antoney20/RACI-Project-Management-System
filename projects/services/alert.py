@@ -28,7 +28,7 @@ def send_accountable_alert_email(activity, supervisor):
     
     
 def send_supervisor_review_alert_email(activity, supervisor):
-    subject = "Activity Escalated for Supervisor Review - RACI"
+    subject = "Activity moved to Supervisor for Review - RACI"
 
     activity_link = f"{settings.FRONTEND_URL}/a/u/dash/projects/activities/{activity.id}"
 
@@ -52,7 +52,7 @@ def send_supervisor_review_alert_email(activity, supervisor):
 def send_admin_review_alert_email(activity, admin_user):
     subject = "Activity Awaiting Admin Review - RACI"
 
-    admin_desk_link = f"{settings.FRONTEND_URL}/a/u/dash/admin/reviews"
+    admin_desk_link = f"{settings.FRONTEND_URL}/a/u/dash/projects/activities/reviews/by-admin"
 
     context = {
         "user_name": admin_user.first_name or admin_user.username,

@@ -33,6 +33,7 @@ urlpatterns = [
     path('invite/verify/<str:token>/', views.VerifyInviteView.as_view(), name='verify-invite'),
     
     path('invite/accept/', views.AcceptInviteView.as_view(), name='accept-invite'),
+    path('invite/resend/', views.ResendInviteView.as_view(), name='resend-invite'),
     # User profile
     path('user/me/', views.user_me, name='user-me'),
     path('all/users/', views.user_list, name='user-list'),

@@ -147,24 +147,58 @@ class ActivityViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'deadline']
     ordering = ['-created_at']
 
-    def get_queryset(self):
-        """Filter activities based on user RACI roles"""
-        user = self.request.user
+    # def get_queryset(self):
+    #     """Filter activities based on user RACI roles"""
+    #     user = self.request.user
         
-        if user.is_staff:
-            return Activity.objects.all().select_related(
-                'project', 'responsible', 'accountable'
-            ).prefetch_related('consulted', 'informed')
+    #     if user.is_staff:
+    #         return Activity.objects.all().select_related(
+    #             'project', 'responsible', 'accountable'
+    #         ).prefetch_related('consulted', 'informed')
 
-        return Activity.objects.filter(
+    #     return Activity.objects.filter(
 
-            Q(responsible=user) | 
-            Q(accountable=user) | 
-            Q(consulted=user) | 
-            Q(informed=user) 
-        ).distinct().select_related(
+    #         Q(responsible=user) | 
+    #         Q(accountable=user) | 
+    #         Q(consulted=user) | 
+    #         Q(informed=user) 
+    #     ).distinct().select_related(
+    #         'project', 'responsible', 'accountable'
+    #     ).prefetch_related('consulted', 'informed')
+
+
+    def get_queryset(self):
+        """
+        Access rules:
+        - Admin → all activities
+        - Supervisor → activities where user is reviewer
+        - Others → only their RACI activities
+        """
+
+        user = self.request.user
+
+        base_queryset = Activity.objects.select_related(
             'project', 'responsible', 'accountable'
-        ).prefetch_related('consulted', 'informed')
+        ).prefetch_related(
+            'consulted',
+            'informed',
+            'activity_review' 
+        )
+
+        if user.is_admin():
+            return base_queryset.all()
+
+        if user.is_supervisor():
+            return base_queryset.filter(
+                activity_review__reviewer=user
+            ).distinct()
+
+        return base_queryset.filter(
+            Q(responsible=user) |
+            Q(accountable=user) |
+            Q(consulted=user) |
+            Q(informed=user)
+        ).distinct()
 
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -266,69 +300,69 @@ class ActivityViewSet(viewsets.ModelViewSet):
             'status': activity.status
         })
 
-    @action(detail=True, methods=['post'], url_path='reorder')
-    def reorder(self, request, pk=None):
-        """
-        Reorder activity within project. Efficient bulk update approach.
-        Expects: {"new_order": <integer>}
-        """
-        activity = self.get_object()
-        user = request.user
+    # @action(detail=True, methods=['post'], url_path='reorder')
+    # def reorder(self, request, pk=None):
+    #     """
+    #     Reorder activity within project. Efficient bulk update approach.
+    #     Expects: {"new_order": <integer>}
+    #     """
+    #     activity = self.get_object()
+    #     user = request.user
         
-        if not (user.is_admin() or user.is_supervisor()):
-            return Response(
-                {
-                    "success": False,
-                    "message": "Only Admins and Supervisors can reorder activities."
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
+    #     if not (user.is_admin() or user.is_supervisor()):
+    #         return Response(
+    #             {
+    #                 "success": False,
+    #                 "message": "Only Admins and Supervisors can reorder activities."
+    #             },
+    #             status=status.HTTP_403_FORBIDDEN
+    #         )
         
-        new_order = request.data.get('new_order')
+    #     new_order = request.data.get('new_order')
         
-        if new_order is None or not isinstance(new_order, int) or new_order < 1:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Valid 'new_order' (positive integer) is required."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+    #     if new_order is None or not isinstance(new_order, int) or new_order < 1:
+    #         return Response(
+    #             {
+    #                 "success": False,
+    #                 "message": "Valid 'new_order' (positive integer) is required."
+    #             },
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
         
-        # Get current order
-        old_order = activity.order
+    #     # Get current order
+    #     old_order = activity.order
         
-        # No change needed
-        if old_order == new_order:
-            return Response({
-                'success': True,
-                'message': 'Activity order unchanged.',
-                'order': activity.order
-            })
+    #     # No change needed
+    #     if old_order == new_order:
+    #         return Response({
+    #             'success': True,
+    #             'message': 'Activity order unchanged.',
+    #             'order': activity.order
+    #         })
         
-        with transaction.atomic():
-            if new_order < old_order:
-                Activity.objects.filter(
-                    project=activity.project,
-                    order__gte=new_order,
-                    order__lt=old_order
-                ).update(order=F('order') + 1)
-            else:
-                Activity.objects.filter(
-                    project=activity.project,
-                    order__gt=old_order,
-                    order__lte=new_order
-                ).update(order=F('order') - 1)
+    #     with transaction.atomic():
+    #         if new_order < old_order:
+    #             Activity.objects.filter(
+    #                 project=activity.project,
+    #                 order__gte=new_order,
+    #                 order__lt=old_order
+    #             ).update(order=F('order') + 1)
+    #         else:
+    #             Activity.objects.filter(
+    #                 project=activity.project,
+    #                 order__gt=old_order,
+    #                 order__lte=new_order
+    #             ).update(order=F('order') - 1)
             
-            activity.order = new_order
-            activity.save(update_fields=['order'])
+    #         activity.order = new_order
+    #         activity.save(update_fields=['order'])
         
-        return Response({
-            'success': True,
-            'message': f'Activity reordered to position {new_order}.',
-            'old_order': old_order,
-            'new_order': new_order
-        })
+    #     return Response({
+    #         'success': True,
+    #         'message': f'Activity reordered to position {new_order}.',
+    #         'old_order': old_order,
+    #         'new_order': new_order
+    #     })
 
     def _create_accountable_review(self, activity):
         return create_or_reset_accountable_review(activity)

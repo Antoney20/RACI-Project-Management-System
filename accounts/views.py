@@ -35,7 +35,7 @@ from mint.models import LeaveAllocation, LeaveRequest
 
 from .models import CustomUser, LoginAttempt, TrustedDevice, UserStatus
 from .serializers import (
-    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, LoginAttemptSerializer, ProfileImageSerializer, RegisterSerializer, LoginSerializer, TrustedDeviceSerializer, UserProfileSerializer, UserSerializer, UserDetailSerializer, UserListSerializer,
+    AcceptInviteSerializer, CustomUserSerializer, InviteSerializer, LoginAttemptSerializer, ProfileImageSerializer, RegisterSerializer, LoginSerializer, ResendInviteSerializer, TrustedDeviceSerializer, UserProfileSerializer, UserSerializer, UserDetailSerializer, UserListSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerifySerializer, ChangePasswordSerializer, LogoutSerializer
 )
@@ -636,7 +636,7 @@ class InviteUserView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         # Check if user has permission to invite
-        if not (request.user.is_superuser or request.user.role in ['admin', 'office_admin']):
+        if not (request.user.is_superuser or request.user.role in ['admin', 'office_admin', 'supervisor']):
             return Response({
                 "success": False,
                 "message": "You do not have permission to invite users"
@@ -789,6 +789,100 @@ class AcceptInviteView(generics.GenericAPIView):
                 "message": f"An error occurred: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+
+class ResendInviteView(generics.GenericAPIView):
+    """
+    Resend invitation email to a user who hasn't accepted the invite yet
+    POST /api/accounts/invite/resend/
+    
+    Request body:
+    {
+        "email": "user@example.com"
+    }
+    """
+    serializer_class = ResendInviteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        # Check if user has permission to resend invites
+        if not (request.user.is_superuser or request.user.role in ['admin', 'office_admin']):
+            return Response({
+                "success": False,
+                "message": "You do not have permission to resend invitations"
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(data=request.data)
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            email = serializer.validated_data.get('email')
+            
+            # Get the invited user
+            try:
+                user = CustomUser.objects.get(
+                    email=email,
+                    is_invited=True,
+                    is_active=False
+                )
+            except CustomUser.DoesNotExist:
+                # Don't reveal whether the user exists
+                return Response({
+                    "success": False,
+                    "message": "No pending invitation found for this email address"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check if invite has already expired
+            if user.invite_expires_at and user.invite_expires_at < timezone.now():
+                # Generate a new invite token and expiration
+                user.invite_token = uuid.uuid4()
+                user.invite_expires_at = timezone.now() + timedelta(days=7)
+                user.invited_at = timezone.now()
+                user.save(update_fields=['invite_token', 'invite_expires_at', 'invited_at'])
+            
+            # Generate invite link
+            invite_link = f"{settings.FRONTEND_URL}/auth/accept-invite/{user.invite_token}/"
+            
+            # Send the invite email
+            try:
+                send_invite_email(
+                    invite_user=user,
+                    invite_link=invite_link,
+                    invited_by=request.user
+                )
+            except Exception as exc:
+                logger.exception("Resend invite email failed", exc_info=exc)
+                return Response({
+                    "success": False,
+                    "message": "Failed to send invitation email. Please try again later."
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            return Response({
+                "success": True,
+                "message": "Invitation resent successfully",
+                "data": {
+                    "user_id": user.id,
+                    "email": user.email,
+                    "invite_link": invite_link,
+                    "expires_at": user.invite_expires_at.isoformat() if user.invite_expires_at else None
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except serializers.ValidationError as e:
+            return Response({
+                "success": False,
+                "message": "Validation failed",
+                "errors": e.detail
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.exception("Unexpected error in resend invite", exc_info=e)
+            return Response({
+                "success": False,
+                "message": f"An error occurred: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

@@ -203,6 +203,33 @@ class AcceptInviteSerializer(serializers.ModelSerializer):
         return user
 
 
+class ResendInviteSerializer(serializers.Serializer):
+    """
+    Serializer for resending invitations
+    """
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the invited user"
+    )
+ 
+    def validate_email(self, value):
+        """
+        Validate that the email exists and has a pending invitation
+        """
+        try:
+            user = CustomUser.objects.get(
+                email=value,
+                is_invited=True,
+                is_active=False
+            )
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError(
+                "No pending invitation found for this email address."
+            )
+        
+        return value
+ 
+
 # class LoginSerializer(serializers.Serializer):
 #     username_or_email = serializers.CharField(required=True)
 #     password = serializers.CharField(write_only=True, required=True)
