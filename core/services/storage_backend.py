@@ -66,6 +66,10 @@ class CemaStorage(Storage):
             raise RuntimeError(
                 f"CemaStorage cannot reach media service at {self._base_url}"
             )
+            
+        print("Status code:", resp.status_code)
+        print("Response headers:", resp.headers)
+        print("Response text:", resp.text)
 
         if resp.status_code == 403:
             raise PermissionError(

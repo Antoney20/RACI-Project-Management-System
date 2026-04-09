@@ -306,6 +306,7 @@ DATABASES = {
 
 
 
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -360,7 +361,7 @@ STORAGES = {
 }
 
 if DEBUG:
-    MEDIA_STORAGE_URL = "http://127.0.0.1:8001/api"
+    MEDIA_STORAGE_URL = "https://media.cema.africa/api"
 else:
     MEDIA_STORAGE_URL = "https://media.cema.africa/api"
 
